@@ -10,6 +10,8 @@ require("dotenv").config();
 // Import routes
 const authRoutes = require("./routes/auth");
 const dataRoutes = require("./routes/data");
+const alldataRoutes = require("./routes/alldata");
+
 const {
   router: websocketRoutes,
   checkAndBroadcastData,
@@ -127,6 +129,7 @@ app.post("/api/update-data", async (req, res) => {
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/data", dataRoutes);
+app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 

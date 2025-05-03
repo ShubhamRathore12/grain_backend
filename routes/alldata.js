@@ -2,34 +2,22 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
 
-// 🚀 API to get last 100 records
-router.get("/machine-data", async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 100"
-    );
-    res.status(200).json({
-      success: true,
-      data: rows,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Error fetching machine data:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch machine data",
-      message: error.message,
-    });
-  }
-});
+// Function to broadcast data to all connected clients
+function broadcastData(wss, data) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === require("ws").OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+}
 
-// 🚀 Optional: API to get only the very latest single record
+// Regular API endpoint to get current data
 router.get("/current-data", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
     );
-    res.status(200).json({
+    res.json({
       success: true,
       data: rows[0] || null,
       timestamp: new Date().toISOString(),
@@ -44,4 +32,34 @@ router.get("/current-data", async (req, res) => {
   }
 });
 
-module.exports = router;
+// Function to check for new data and broadcast
+async function checkAndBroadcastData(wss) {
+  try {
+    const [rows] = await pool.query(
+      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+    );
+    const latest = rows[0];
+
+    if (latest) {
+      const formattedData = {
+        type: "update",
+        data: latest,
+        timestamp: new Date().toISOString(),
+      };
+      broadcastData(wss, formattedData);
+    }
+  } catch (err) {
+    console.error("DB fetch error:", err);
+    broadcastData(wss, {
+      type: "error",
+      error: "DB error",
+      message: err.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
+module.exports = {
+  router,
+  checkAndBroadcastData,
+};

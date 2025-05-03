@@ -2,7 +2,19 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
 
-// Function to broadcast data to all connected clients
+// Utility: determine table by product
+function getTableName(product) {
+  switch (product) {
+    case "S7-1200":
+      return "kabumachinedata";
+    case "S7-200":
+      return "kabomachinedatasmart200";
+    default:
+      return "kabumachinedata"; // fallback
+  }
+}
+
+// Broadcast to all clients
 function broadcastData(wss, data) {
   wss.clients.forEach((client) => {
     if (client.readyState === require("ws").OPEN) {
@@ -11,11 +23,14 @@ function broadcastData(wss, data) {
   });
 }
 
-// Regular API endpoint to get current data
+// GET current data from specific table
 router.get("/current-data", async (req, res) => {
+  const product = req.query.product || "s7-1200";
+  const table = getTableName(product);
+
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
     res.json({
       success: true,
@@ -32,11 +47,13 @@ router.get("/current-data", async (req, res) => {
   }
 });
 
-// Function to check for new data and broadcast
-async function checkAndBroadcastData(wss) {
+// Check and broadcast for WebSocket
+async function checkAndBroadcastData(wss, product = "s7-1200") {
+  const table = getTableName(product);
+
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
     const latest = rows[0];
 

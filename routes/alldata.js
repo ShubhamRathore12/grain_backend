@@ -6,7 +6,7 @@ const { pool } = require("../db");
 router.get("/machine-data", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 100"
+      "SELECT * FROM kab0machinedatasmart200 ORDER BY id DESC LIMIT 100"
     );
     res.status(200).json({
       success: true,

@@ -5,9 +5,9 @@ const { pool } = require("../db");
 // Utility: determine table by product
 function getTableName(product) {
   switch (product) {
-    case "S7-1200":
+    case "1":
       return "kabumachinedata";
-    case "S7-200":
+    case "2":
       return "kabomachinedatasmart200";
     default:
       return "kabumachinedata"; // fallback

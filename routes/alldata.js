@@ -1,54 +1,67 @@
-
 const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
+const WebSocket = require("ws");
 
-router.get("/alldata", async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-
-  // Let the frontend know the connection was successful
-  res.write(`retry: 2000\n`);
-  res.write(`event: connected\ndata: connected\n\n`);
-
-  let lastInsertedId = 0;
-
-  const interval = setInterval(async () => {
-    try {
-      const [rows] = await pool.query(
-        "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
-      );
-      const latest = rows[0];
-
-      if (latest && latest.id > lastInsertedId) {
-        lastInsertedId = latest.id;
-
-        // 🛠 Structure with `success` and `data`
-        const payload = {
-          success: true,
-          data: latest,
-        };
-
-        res.write(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
-      }
-    } catch (err) {
-      console.error("DB fetch error:", err?.message || err);
-
-      res.write(
-        `event: error\ndata: ${JSON.stringify({
-          success: false,
-          error: err?.message || "DB error",
-        })}\n\n`
-      );
+// Utility: Broadcast to all WebSocket clients
+function broadcastData(wss, data) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
     }
-  }, 2000);
-
-  req.on("close", () => {
-    clearInterval(interval);
-    res.end();
-    console.log("SSE client disconnected");
   });
+}
+
+// GET latest row from kabumachinedata table
+router.get("/alldata", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
+    );
+
+    res.json({
+      success: true,
+      data: rows[0] || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching current data:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch current data",
+      message: error.message,
+    });
+  }
 });
 
-module.exports = router;
+// Function to broadcast latest data over WebSocket
+async function checkAndBroadcastData(wss) {
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
+    );
+
+    const latest = rows[0];
+
+    if (latest) {
+      broadcastData(wss, {
+        type: "update",
+        data: latest,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error("DB fetch error:", err);
+    broadcastData(wss, {
+      type: "error",
+      error: "DB error",
+      message: err.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
+module.exports = {
+  router,
+  checkAndBroadcastData,
+};

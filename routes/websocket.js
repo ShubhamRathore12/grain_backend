@@ -2,12 +2,19 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
 
-// Always return default table
-function getTableName() {
-  return "kabumachinedata";
+// Utility: determine table by product
+function getTableName(product) {
+  switch (product) {
+    case 1:
+      return "kabumachinedata";
+    case 2:
+      return "kabomachinedatasmart200";
+    default:
+      return "kabumachinedata"; // fallback
+  }
 }
 
-// Broadcast data to all connected clients
+// Broadcast to all clients
 function broadcastData(wss, data) {
   wss.clients.forEach((client) => {
     if (client.readyState === require("ws").OPEN) {
@@ -16,15 +23,15 @@ function broadcastData(wss, data) {
   });
 }
 
-// GET /api/ws/current-data — fetch latest row from default table
+// GET current data from specific table
 router.get("/current-data", async (req, res) => {
-  const table = getTableName(); // default table
+  const product = req.query.product || "s7-1200";
+  const table = getTableName(product);
 
   try {
     const [rows] = await pool.query(
       `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
-
     res.json({
       success: true,
       data: rows[0] || null,
@@ -40,15 +47,14 @@ router.get("/current-data", async (req, res) => {
   }
 });
 
-// Periodically fetch data and broadcast via WebSocket
-async function checkAndBroadcastData(wss) {
-  const table = getTableName(); // always default
+// Check and broadcast for WebSocket
+async function checkAndBroadcastData(wss, product = "s7-1200") {
+  const table = getTableName(product);
 
   try {
     const [rows] = await pool.query(
       `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
-
     const latest = rows[0];
 
     if (latest) {
@@ -57,12 +63,10 @@ async function checkAndBroadcastData(wss) {
         data: latest,
         timestamp: new Date().toISOString(),
       };
-
       broadcastData(wss, formattedData);
     }
   } catch (err) {
     console.error("DB fetch error:", err);
-
     broadcastData(wss, {
       type: "error",
       error: "DB error",

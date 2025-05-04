@@ -1,27 +1,24 @@
 const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
+const WebSocket = require("ws");
 
-// Utility: determine table by product
-
-// Broadcast to all clients
+// Utility: Broadcast to all WebSocket clients
 function broadcastData(wss, data) {
   wss.clients.forEach((client) => {
-    if (client.readyState === require("ws").OPEN) {
+    if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(data));
     }
   });
 }
 
-// GET current data from specific table
+// GET latest row from kabumachinedata table
 router.get("/current-data", async (req, res) => {
-  const product = req.query.product || "s7-1200";
-  const table = getTableName(product);
-
   try {
     const [rows] = await pool.query(
       `SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1`
     );
+
     res.json({
       success: true,
       data: rows[0] || null,
@@ -37,23 +34,21 @@ router.get("/current-data", async (req, res) => {
   }
 });
 
-// Check and broadcast for WebSocket
-async function checkAndBroadcastData(wss, product = "s7-1200") {
-  const table = getTableName(product);
-
+// Function to broadcast latest data over WebSocket
+async function checkAndBroadcastData(wss) {
   try {
     const [rows] = await pool.query(
       `SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1`
     );
+
     const latest = rows[0];
 
     if (latest) {
-      const formattedData = {
+      broadcastData(wss, {
         type: "update",
         data: latest,
         timestamp: new Date().toISOString(),
-      };
-      broadcastData(wss, formattedData);
+      });
     }
   } catch (err) {
     console.error("DB fetch error:", err);

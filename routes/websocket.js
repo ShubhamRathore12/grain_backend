@@ -3,16 +3,6 @@ const router = express.Router();
 const { pool } = require("../db");
 
 // Utility: determine table by product
-function getTableName(product) {
-  switch (product) {
-    case 1:
-      return "kabumachinedata";
-    case 2:
-      return "kabomachinedatasmart200";
-    default:
-      return "kabumachinedata"; // fallback
-  }
-}
 
 // Broadcast to all clients
 function broadcastData(wss, data) {
@@ -30,7 +20,7 @@ router.get("/current-data", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1`
     );
     res.json({
       success: true,
@@ -53,7 +43,7 @@ async function checkAndBroadcastData(wss, product = "s7-1200") {
 
   try {
     const [rows] = await pool.query(
-      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1`
     );
     const latest = rows[0];
 

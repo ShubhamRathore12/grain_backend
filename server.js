@@ -129,7 +129,7 @@ app.post("/api/update-data", async (req, res) => {
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/data", dataRoutes);
-app.use("/api", alldataRoutes);
+app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 

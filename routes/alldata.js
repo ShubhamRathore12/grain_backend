@@ -36,7 +36,7 @@ router.get("/current-data", async (req, res) => {
 async function checkAndBroadcastData(wss) {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
     );
     const latest = rows[0];
 

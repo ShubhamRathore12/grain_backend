@@ -2,19 +2,12 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
 
-// Utility: determine table by product
-function getTableName(product) {
-  switch (product) {
-    case "1":
-      return "kabumachinedata";
-    case "2":
-      return "kabomachinedatasmart200";
-    default:
-      return "kabumachinedata"; // fallback
-  }
+// Always return default table
+function getTableName() {
+  return "kabumachinedata";
 }
 
-// Broadcast to all clients
+// Broadcast data to all connected clients
 function broadcastData(wss, data) {
   wss.clients.forEach((client) => {
     if (client.readyState === require("ws").OPEN) {
@@ -23,15 +16,15 @@ function broadcastData(wss, data) {
   });
 }
 
-// GET current data from specific table
+// GET /api/ws/current-data — fetch latest row from default table
 router.get("/current-data", async (req, res) => {
-  const product = req.query.product || "s7-1200";
-  const table = getTableName(product);
+  const table = getTableName(); // default table
 
   try {
     const [rows] = await pool.query(
       `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
+
     res.json({
       success: true,
       data: rows[0] || null,
@@ -47,14 +40,15 @@ router.get("/current-data", async (req, res) => {
   }
 });
 
-// Check and broadcast for WebSocket
-async function checkAndBroadcastData(wss, product = "s7-1200") {
-  const table = getTableName(product);
+// Periodically fetch data and broadcast via WebSocket
+async function checkAndBroadcastData(wss) {
+  const table = getTableName(); // always default
 
   try {
     const [rows] = await pool.query(
       `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
+
     const latest = rows[0];
 
     if (latest) {
@@ -63,10 +57,12 @@ async function checkAndBroadcastData(wss, product = "s7-1200") {
         data: latest,
         timestamp: new Date().toISOString(),
       };
+
       broadcastData(wss, formattedData);
     }
   } catch (err) {
     console.error("DB fetch error:", err);
+
     broadcastData(wss, {
       type: "error",
       error: "DB error",

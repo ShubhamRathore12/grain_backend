@@ -14,7 +14,7 @@ function broadcastData(wss, data) {
 }
 
 // GET current data from specific table
-router.get("/current-data", async (req, res) => {
+router.get("/alldata", async (req, res) => {
   const product = req.query.product || "s7-1200";
   const table = getTableName(product);
 

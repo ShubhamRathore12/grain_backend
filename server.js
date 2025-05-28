@@ -20,31 +20,54 @@ const registerRoutes = require("./routes/register");
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Configure CORS
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || "*",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+
+// WebSocket server with error handling
+const wss = new WebSocket.Server({
+  server,
+  path: "/ws",
+  clientTracking: true,
+  handleProtocols: () => true,
+});
 
 // Store WebSocket server instance in app for use in routes
 app.set("wss", wss);
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
-
-// WebSocket connection handling
-wss.on("connection", (ws) => {
+// WebSocket connection handling with better error handling
+wss.on("connection", (ws, req) => {
   console.log("New client connected");
 
   // Send initial connection message
-  ws.send(
-    JSON.stringify({
-      type: "connected",
-      data: { status: "connected" },
-      timestamp: new Date().toISOString(),
-    })
-  );
+  try {
+    ws.send(
+      JSON.stringify({
+        type: "connected",
+        data: { status: "connected" },
+        timestamp: new Date().toISOString(),
+      })
+    );
+  } catch (error) {
+    console.error("Error sending initial message:", error);
+  }
 
   ws.on("message", (message) => {
-    console.log("Received:", message);
-    // Handle incoming messages if needed
+    try {
+      console.log("Received:", message.toString());
+      // Handle incoming messages if needed
+    } catch (error) {
+      console.error("Error processing message:", error);
+    }
   });
 
   ws.on("close", () => {
@@ -56,10 +79,23 @@ wss.on("connection", (ws) => {
   });
 });
 
-// Check for new data every 2 seconds
-setInterval(() => {
-  checkAndBroadcastData(wss);
+// Check for new data every 2 seconds with error handling
+const dataCheckInterval = setInterval(() => {
+  try {
+    checkAndBroadcastData(wss);
+  } catch (error) {
+    console.error("Error checking and broadcasting data:", error);
+  }
 }, 2000);
+
+// Cleanup on server shutdown
+process.on("SIGTERM", () => {
+  clearInterval(dataCheckInterval);
+  wss.close(() => {
+    console.log("WebSocket server closed");
+    process.exit(0);
+  });
+});
 
 // Login route
 app.post("/api/login", async (req, res) => {
@@ -136,10 +172,19 @@ app.use("/api/register", registerRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ message: "Something broke!" });
+  res.status(500).json({
+    message:
+      process.env.NODE_ENV === "production"
+        ? "Internal server error"
+        : err.message,
+  });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(
+    `Server running on port ${PORT} in ${
+      process.env.NODE_ENV || "development"
+    } mode`
+  );
 });

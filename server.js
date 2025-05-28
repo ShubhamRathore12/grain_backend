@@ -10,8 +10,7 @@ require("dotenv").config();
 // Import routes
 const authRoutes = require("./routes/auth");
 const dataRoutes = require("./routes/data");
-const alldataRoutes = require("./routes/alldata");
-
+const alldataRoutes = require("./routes/alldata").router;
 const {
   router: websocketRoutes,
   checkAndBroadcastData,

@@ -61,6 +61,7 @@ router.post("/register", async (req, res) => {
     company,
     password,
     monitorAccess,
+    location,
   } = req.body;
 
   try {
@@ -86,8 +87,8 @@ router.post("/register", async (req, res) => {
     // Insert new user
     await pool.query(
       `INSERT INTO kabu_users 
-      (accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess,location) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)`,
       [
         accountType,
         firstName,
@@ -98,6 +99,7 @@ router.post("/register", async (req, res) => {
         company,
         password,
         monitorAccessStr,
+        location || null
       ]
     );
 

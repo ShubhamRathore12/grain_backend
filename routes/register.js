@@ -14,6 +14,7 @@ router.post("/", async (req, res) => {
     company,
     password,
     monitorAccess,
+    location, // ✅ NEW FIELD
   } = req.body;
 
   try {
@@ -36,11 +37,11 @@ router.post("/", async (req, res) => {
       ? monitorAccess.join(",")
       : monitorAccess || "";
 
-    // Insert new user
+    // Insert new user with location
     await pool.query(
       `INSERT INTO kabu_users 
-            (accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess, location) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         accountType,
         firstName,
@@ -51,6 +52,7 @@ router.post("/", async (req, res) => {
         company,
         password,
         monitorAccessStr,
+        location || null, // ✅ Include location
       ]
     );
 

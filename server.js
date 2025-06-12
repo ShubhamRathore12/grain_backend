@@ -15,7 +15,7 @@ const {
   router: websocketRoutes,
   checkAndBroadcastData,
 } = require("./routes/websocket");
-const registerRoutes = require("./routes/register");\
+const registerRoutes = require("./routes/register");
 const dataRouters = require("./routes/all700data");
 
 const app = express();

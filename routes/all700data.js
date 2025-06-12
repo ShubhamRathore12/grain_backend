@@ -1,4 +1,3 @@
-
 const express = require("express");
 const router = express.Router();
 const { pool } = require("../db"); // Adjust path if needed
@@ -20,7 +19,7 @@ router.get("/getAllDataSmart200", async (req, res) => {
 router.get("/getAllData", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabomachinedata ORDER BY id DESC LIMIT 100"
+      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 100"
     );
     res.status(200).json(rows);
   } catch (err) {

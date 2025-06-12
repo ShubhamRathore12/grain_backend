@@ -168,6 +168,7 @@ app.use("/api/data", dataRoutes);
 app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
+app.use("/api/all700data", dataRouters);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

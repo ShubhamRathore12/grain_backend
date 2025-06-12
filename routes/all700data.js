@@ -1,4 +1,4 @@
-// routes/data.js
+
 const express = require("express");
 const router = express.Router();
 const { pool } = require("../db"); // Adjust path if needed

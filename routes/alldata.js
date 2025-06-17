@@ -19,16 +19,9 @@ router.get("/alldata", async (req, res) => {
       `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
     );
 
-    const data = rows[0] || null;
-    
-    // Hardcode COMPRESSOR_TIME field to 93
-    if (data) {
-      data.COMPRESSOR_TIME = 93;
-    }
-
     res.json({
       success: true,
-      data: data,
+      data: rows[0] || null,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -51,9 +44,6 @@ async function checkAndBroadcastData(wss) {
     const latest = rows[0];
 
     if (latest) {
-      // Hardcode COMPRESSOR_TIME field to 93
-      latest.COMPRESSOR_TIME = 93;
-      
       broadcastData(wss, {
         type: "update",
         data: latest,
@@ -75,3 +65,4 @@ module.exports = {
   router,
   checkAndBroadcastData,
 };
+

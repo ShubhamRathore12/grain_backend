@@ -4,9 +4,9 @@ const { pool } = require("../db");
 const { authenticateToken } = require("../middleware/auth");
 const WebSocket = require("ws");
 
-// Store last known data for comparison
-let lastGtplData = null;
-let lastKaboData = null;
+// Store last known timestamps for comparison
+let lastGtplTimestamp = null;
+let lastKaboTimestamp = null;
 let lastUpdateTime = null;
 let timeoutInterval = null;
 
@@ -21,22 +21,57 @@ function broadcastData(wss, data) {
   }
 }
 
-// Function to check if data has actually changed (not just ID)
-function hasDataChanged(newData, lastData) {
-  if (!lastData) return true;
+// Function to check if timestamp has actually changed
+function hasTimestampChanged(newTimestamp, lastTimestamp) {
+  if (!lastTimestamp) return true;
 
-  // Compare all fields except id and timestamp fields
-  const fieldsToCompare = Object.keys(newData).filter(
-    (key) => !["id", "created_at", "timestamp", "updated_at"].includes(key)
-  );
+  // Convert to Date objects for comparison
+  const newDate = new Date(newTimestamp);
+  const lastDate = new Date(lastTimestamp);
 
-  for (const field of fieldsToCompare) {
-    if (newData[field] !== lastData[field]) {
-      return true;
-    }
+  // Check if the new timestamp is different (and newer)
+  return newDate.getTime() !== lastDate.getTime();
+}
+
+// Function to get machine-specific response based on data freshness
+function getMachineSpecificResponse(machineType, timestamp, currentTime) {
+  const timestampDate = new Date(timestamp);
+  const fiveMinutesAgo = new Date(currentTime.getTime() - 5 * 60 * 1000);
+  const oneMinuteAgo = new Date(currentTime.getTime() - 1 * 60 * 1000);
+  const thirtySecondsAgo = new Date(currentTime.getTime() - 30 * 1000);
+
+  // Different logic for different machines
+  switch (machineType) {
+    case "gtpl":
+      return {
+        machineStatus: timestampDate > fiveMinutesAgo,
+        coolingStatus: timestampDate > oneMinuteAgo,
+        internetStatus: timestampDate > thirtySecondsAgo,
+        machineType: "GTPL_122_S7_1200_01",
+        priority: "high",
+        responseType: "gtpl_machine",
+      };
+
+    case "kabo":
+      return {
+        machineStatus: timestampDate > fiveMinutesAgo,
+        coolingStatus: timestampDate > oneMinuteAgo,
+        internetStatus: timestampDate > thirtySecondsAgo,
+        machineType: "KABO_MACHINE_SMART200",
+        priority: "medium",
+        responseType: "kabo_machine",
+      };
+
+    default:
+      return {
+        machineStatus: timestampDate > fiveMinutesAgo,
+        coolingStatus: timestampDate > oneMinuteAgo,
+        internetStatus: timestampDate > thirtySecondsAgo,
+        machineType: "UNKNOWN",
+        priority: "low",
+        responseType: "unknown_machine",
+      };
   }
-
-  return false;
 }
 
 // Function to reset values to 0 after 18 seconds of no updates
@@ -48,25 +83,33 @@ function startTimeoutReset(wss) {
 
   timeoutInterval = setTimeout(() => {
     console.log(
-      "18 seconds passed without data updates, resetting values to 0"
+      "18 seconds passed without timestamp updates, resetting values to 0"
     );
 
     const resetData = {
       success: true,
-      message: "Values reset to 0 due to no updates",
+      message: "Values reset to 0 due to no timestamp updates",
       data: {
-        machineStatus: false,
-        coolingStatus: false,
-        internetStatus: false,
-        lastUpdate: {
-          gtpl: new Date().toISOString(),
-          kabo: new Date().toISOString(),
+        gtpl: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "GTPL_122_S7_1200_01",
+          priority: "high",
+          responseType: "gtpl_machine",
+          lastUpdate: new Date().toISOString(),
+          reset: true,
         },
-        recordIds: {
-          gtpl: lastGtplData?.id || 0,
-          kabo: lastKaboData?.id || 0,
+        kabo: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "KABO_MACHINE_SMART200",
+          priority: "medium",
+          responseType: "kabo_machine",
+          lastUpdate: new Date().toISOString(),
+          reset: true,
         },
-        reset: true,
       },
       timestamp: new Date().toISOString(),
     };
@@ -78,9 +121,9 @@ function startTimeoutReset(wss) {
       timestamp: new Date().toISOString(),
     });
 
-    // Reset stored data
-    lastGtplData = null;
-    lastKaboData = null;
+    // Reset stored timestamps
+    lastGtplTimestamp = null;
+    lastKaboTimestamp = null;
     lastUpdateTime = null;
   }, 18000); // 18 seconds
 }
@@ -90,123 +133,94 @@ async function checkAndBroadcastMachineStatus(wss) {
   try {
     // Get latest record from gtpl_122_s7_1200_01 table
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
     // Get latest record from kabomachinedatasmart200 table
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
-    // Check if data exists
-    if (
-      !gtplData ||
-      gtplData.length === 0 ||
-      !kaboData ||
-      kaboData.length === 0
-    ) {
-      const noDataResponse = {
-        success: false,
-        message: "No machine data found",
-        data: {
-          machineStatus: false,
-          coolingStatus: false,
-          internetStatus: false,
-          lastUpdate: {
-            gtpl: null,
-            kabo: null,
-          },
-          recordIds: {
-            gtpl: 0,
-            kabo: 0,
-          },
-        },
-        timestamp: new Date().toISOString(),
-      };
+    const currentTime = new Date();
+    let hasAnyUpdate = false;
 
-      broadcastData(wss, {
-        type: "machine_status",
-        data: noDataResponse,
-        timestamp: new Date().toISOString(),
-      });
+    // Process GTPL machine data
+    let gtplResponse = null;
+    if (gtplData && gtplData.length > 0) {
+      const gtplRecord = gtplData[0];
+      const gtplTimestamp =
+        gtplRecord.created_at || gtplRecord.timestamp || currentTime;
 
-      return;
+      // Check if timestamp has changed
+      const gtplChanged = hasTimestampChanged(gtplTimestamp, lastGtplTimestamp);
+
+      if (gtplChanged) {
+        lastGtplTimestamp = gtplTimestamp;
+        hasAnyUpdate = true;
+
+        gtplResponse = {
+          ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
+          recordId: gtplRecord.id,
+          lastUpdate: new Date(gtplTimestamp).toISOString(),
+          timestampChanged: true,
+        };
+      }
     }
 
-    const gtplRecord = gtplData[0];
-    const kaboRecord = kaboData[0];
+    // Process KABO machine data
+    let kaboResponse = null;
+    if (kaboData && kaboData.length > 0) {
+      const kaboRecord = kaboData[0];
+      const kaboTimestamp =
+        kaboRecord.created_at || kaboRecord.timestamp || currentTime;
 
-    // Check if data has actually changed
-    const gtplChanged = hasDataChanged(gtplRecord, lastGtplData);
-    const kaboChanged = hasDataChanged(kaboRecord, lastKaboData);
+      // Check if timestamp has changed
+      const kaboChanged = hasTimestampChanged(kaboTimestamp, lastKaboTimestamp);
 
-    // Only proceed if data has changed or it's the first time
-    if (gtplChanged || kaboChanged || !lastUpdateTime) {
-      // Update stored data
-      lastGtplData = gtplRecord;
-      lastKaboData = kaboRecord;
-      lastUpdateTime = new Date();
+      if (kaboChanged) {
+        lastKaboTimestamp = kaboTimestamp;
+        hasAnyUpdate = true;
+
+        kaboResponse = {
+          ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
+          recordId: kaboRecord.id,
+          lastUpdate: new Date(kaboTimestamp).toISOString(),
+          timestampChanged: true,
+        };
+      }
+    }
+
+    // Only broadcast if there are updates or it's the first time
+    if (hasAnyUpdate || (!lastGtplTimestamp && !lastKaboTimestamp)) {
+      lastUpdateTime = currentTime;
 
       // Restart timeout
       startTimeoutReset(wss);
 
-      // Get current timestamp
-      const currentTime = new Date();
-
-      // Check if data is recent (within last 5 minutes for machine status)
-      const gtplTimestamp = new Date(
-        gtplRecord.created_at || gtplRecord.timestamp || currentTime
-      );
-      const kaboTimestamp = new Date(
-        kaboRecord.created_at || kaboRecord.timestamp || currentTime
-      );
-
-      const fiveMinutesAgo = new Date(currentTime.getTime() - 5 * 60 * 1000);
-      const oneMinuteAgo = new Date(currentTime.getTime() - 1 * 60 * 1000);
-
-      // Determine machine status based on recent data updates
-      const machineStatus =
-        gtplTimestamp > fiveMinutesAgo && kaboTimestamp > fiveMinutesAgo;
-
-      // Determine cooling status
-      let coolingStatus = false;
-      if (gtplRecord.cooling_status !== undefined) {
-        coolingStatus = gtplRecord.cooling_status;
-      } else if (gtplRecord.cooling !== undefined) {
-        coolingStatus = gtplRecord.cooling;
-      } else if (kaboRecord.cooling_status !== undefined) {
-        coolingStatus = kaboRecord.cooling_status;
-      } else if (kaboRecord.cooling !== undefined) {
-        coolingStatus = kaboRecord.cooling;
-      } else {
-        // Default cooling status based on recent data
-        coolingStatus =
-          gtplTimestamp > oneMinuteAgo || kaboTimestamp > oneMinuteAgo;
-      }
-
-      // Determine internet status based on data freshness
-      const internetStatus =
-        gtplTimestamp > oneMinuteAgo || kaboTimestamp > oneMinuteAgo;
-
-      // Prepare response
+      // Prepare response with different JSON structure for each machine
       const response = {
         success: true,
-        message: "Machine status updated",
+        message: "Machine status updated based on timestamp changes",
         data: {
-          machineStatus,
-          coolingStatus,
-          internetStatus,
-          lastUpdate: {
-            gtpl: gtplTimestamp.toISOString(),
-            kabo: kaboTimestamp.toISOString(),
+          gtpl: gtplResponse || {
+            machineStatus: false,
+            coolingStatus: false,
+            internetStatus: false,
+            machineType: "GTPL_122_S7_1200_01",
+            priority: "high",
+            responseType: "gtpl_machine",
+            lastUpdate: null,
+            timestampChanged: false,
           },
-          recordIds: {
-            gtpl: gtplRecord.id,
-            kabo: kaboRecord.id,
-          },
-          dataChanged: {
-            gtpl: gtplChanged,
-            kabo: kaboChanged,
+          kabo: kaboResponse || {
+            machineStatus: false,
+            coolingStatus: false,
+            internetStatus: false,
+            machineType: "KABO_MACHINE_SMART200",
+            priority: "medium",
+            responseType: "kabo_machine",
+            lastUpdate: null,
+            timestampChanged: false,
           },
         },
         timestamp: currentTime.toISOString(),
@@ -230,9 +244,24 @@ async function checkAndBroadcastMachineStatus(wss) {
           ? error.message
           : "Internal server error",
       data: {
-        machineStatus: false,
-        coolingStatus: false,
-        internetStatus: false,
+        gtpl: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "GTPL_122_S7_1200_01",
+          priority: "high",
+          responseType: "gtpl_machine",
+          error: true,
+        },
+        kabo: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "KABO_MACHINE_SMART200",
+          priority: "medium",
+          responseType: "kabo_machine",
+          error: true,
+        },
       },
       timestamp: new Date().toISOString(),
     };
@@ -250,95 +279,71 @@ router.get("/status", authenticateToken, async (req, res) => {
   try {
     // Get latest record from gtpl_122_s7_1200_01 table
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
     // Get latest record from kabomachinedatasmart200 table
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
-    // Check if data exists
-    if (
-      !gtplData ||
-      gtplData.length === 0 ||
-      !kaboData ||
-      kaboData.length === 0
-    ) {
-      return res.status(404).json({
-        success: false,
-        message: "No machine data found",
-        machineStatus: false,
-        coolingStatus: false,
-        internetStatus: false,
-      });
-    }
-
-    const gtplRecord = gtplData[0];
-    const kaboRecord = kaboData[0];
-
-    // Get current timestamp
     const currentTime = new Date();
 
-    // Check if data is recent (within last 5 minutes for machine status)
-    const gtplTimestamp = new Date(
-      gtplRecord.created_at || gtplRecord.timestamp || currentTime
-    );
-    const kaboTimestamp = new Date(
-      kaboRecord.created_at || kaboRecord.timestamp || currentTime
-    );
+    // Process GTPL machine data
+    let gtplResponse = {
+      machineStatus: false,
+      coolingStatus: false,
+      internetStatus: false,
+      machineType: "GTPL_122_S7_1200_01",
+      priority: "high",
+      responseType: "gtpl_machine",
+      lastUpdate: null,
+      recordId: 0,
+    };
 
-    const fiveMinutesAgo = new Date(currentTime.getTime() - 5 * 60 * 1000);
-    const oneMinuteAgo = new Date(currentTime.getTime() - 1 * 60 * 1000);
+    if (gtplData && gtplData.length > 0) {
+      const gtplRecord = gtplData[0];
+      const gtplTimestamp =
+        gtplRecord.created_at || gtplRecord.timestamp || currentTime;
 
-    // Determine machine status based on recent data updates
-    const machineStatus =
-      gtplTimestamp > fiveMinutesAgo && kaboTimestamp > fiveMinutesAgo;
-
-    // Determine cooling status
-    let coolingStatus = false;
-    if (gtplRecord.cooling_status !== undefined) {
-      coolingStatus = gtplRecord.cooling_status;
-    } else if (gtplRecord.cooling !== undefined) {
-      coolingStatus = gtplRecord.cooling;
-    } else if (kaboRecord.cooling_status !== undefined) {
-      coolingStatus = kaboRecord.cooling_status;
-    } else if (kaboRecord.cooling !== undefined) {
-      coolingStatus = kaboRecord.cooling;
-    } else {
-      // Default cooling status based on recent data
-      coolingStatus =
-        gtplTimestamp > oneMinuteAgo || kaboTimestamp > oneMinuteAgo;
+      gtplResponse = {
+        ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
+        recordId: gtplRecord.id,
+        lastUpdate: new Date(gtplTimestamp).toISOString(),
+      };
     }
 
-    // Determine internet status based on data freshness
-    const internetStatus =
-      gtplTimestamp > oneMinuteAgo || kaboTimestamp > oneMinuteAgo;
+    // Process KABO machine data
+    let kaboResponse = {
+      machineStatus: false,
+      coolingStatus: false,
+      internetStatus: false,
+      machineType: "KABO_MACHINE_SMART200",
+      priority: "medium",
+      responseType: "kabo_machine",
+      lastUpdate: null,
+      recordId: 0,
+    };
 
-    // Check if data has changed
-    const gtplChanged = hasDataChanged(gtplRecord, lastGtplData);
-    const kaboChanged = hasDataChanged(kaboRecord, lastKaboData);
+    if (kaboData && kaboData.length > 0) {
+      const kaboRecord = kaboData[0];
+      const kaboTimestamp =
+        kaboRecord.created_at || kaboRecord.timestamp || currentTime;
 
-    // Prepare response
+      kaboResponse = {
+        ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
+        recordId: kaboRecord.id,
+        lastUpdate: new Date(kaboTimestamp).toISOString(),
+      };
+    }
+
+    // Prepare response with different JSON structure for each machine
     const response = {
       success: true,
-      message: "Machine status retrieved successfully",
+      message: "Machine status retrieved successfully based on timestamp",
       data: {
-        machineStatus,
-        coolingStatus,
-        internetStatus,
-        lastUpdate: {
-          gtpl: gtplTimestamp.toISOString(),
-          kabo: kaboTimestamp.toISOString(),
-        },
-        recordIds: {
-          gtpl: gtplRecord.id,
-          kabo: kaboRecord.id,
-        },
-        dataChanged: {
-          gtpl: gtplChanged,
-          kabo: kaboChanged,
-        },
+        gtpl: gtplResponse,
+        kabo: kaboResponse,
       },
       timestamp: currentTime.toISOString(),
     };
@@ -353,9 +358,26 @@ router.get("/status", authenticateToken, async (req, res) => {
         process.env.NODE_ENV === "development"
           ? error.message
           : "Internal server error",
-      machineStatus: false,
-      coolingStatus: false,
-      internetStatus: false,
+      data: {
+        gtpl: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "GTPL_122_S7_1200_01",
+          priority: "high",
+          responseType: "gtpl_machine",
+          error: true,
+        },
+        kabo: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "KABO_MACHINE_SMART200",
+          priority: "medium",
+          responseType: "kabo_machine",
+          error: true,
+        },
+      },
     });
   }
 });
@@ -365,95 +387,71 @@ router.get("/status/public", async (req, res) => {
   try {
     // Get latest record from gtpl_122_s7_1200_01 table
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
     // Get latest record from kabomachinedatasmart200 table
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
-    // Check if data exists
-    if (
-      !gtplData ||
-      gtplData.length === 0 ||
-      !kaboData ||
-      kaboData.length === 0
-    ) {
-      return res.status(404).json({
-        success: false,
-        message: "No machine data found",
-        machineStatus: false,
-        coolingStatus: false,
-        internetStatus: false,
-      });
-    }
-
-    const gtplRecord = gtplData[0];
-    const kaboRecord = kaboData[0];
-
-    // Get current timestamp
     const currentTime = new Date();
 
-    // Check if data is recent (within last 5 minutes for machine status)
-    const gtplTimestamp = new Date(
-      gtplRecord.created_at || gtplRecord.timestamp || currentTime
-    );
-    const kaboTimestamp = new Date(
-      kaboRecord.created_at || kaboRecord.timestamp || currentTime
-    );
+    // Process GTPL machine data
+    let gtplResponse = {
+      machineStatus: false,
+      coolingStatus: false,
+      internetStatus: false,
+      machineType: "GTPL_122_S7_1200_01",
+      priority: "high",
+      responseType: "gtpl_machine",
+      lastUpdate: null,
+      recordId: 0,
+    };
 
-    const fiveMinutesAgo = new Date(currentTime.getTime() - 5 * 60 * 1000);
-    const oneMinuteAgo = new Date(currentTime.getTime() - 1 * 60 * 1000);
+    if (gtplData && gtplData.length > 0) {
+      const gtplRecord = gtplData[0];
+      const gtplTimestamp =
+        gtplRecord.created_at || gtplRecord.timestamp || currentTime;
 
-    // Determine machine status based on recent data updates
-    const machineStatus =
-      gtplTimestamp > fiveMinutesAgo && kaboTimestamp > fiveMinutesAgo;
-
-    // Determine cooling status
-    let coolingStatus = false;
-    if (gtplRecord.cooling_status !== undefined) {
-      coolingStatus = gtplRecord.cooling_status;
-    } else if (gtplRecord.cooling !== undefined) {
-      coolingStatus = gtplRecord.cooling;
-    } else if (kaboRecord.cooling_status !== undefined) {
-      coolingStatus = kaboRecord.cooling_status;
-    } else if (kaboRecord.cooling !== undefined) {
-      coolingStatus = kaboRecord.cooling;
-    } else {
-      // Default cooling status based on recent data
-      coolingStatus =
-        gtplTimestamp > oneMinuteAgo || kaboTimestamp > oneMinuteAgo;
+      gtplResponse = {
+        ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
+        recordId: gtplRecord.id,
+        lastUpdate: new Date(gtplTimestamp).toISOString(),
+      };
     }
 
-    // Determine internet status based on data freshness
-    const internetStatus =
-      gtplTimestamp > oneMinuteAgo || kaboTimestamp > oneMinuteAgo;
+    // Process KABO machine data
+    let kaboResponse = {
+      machineStatus: false,
+      coolingStatus: false,
+      internetStatus: false,
+      machineType: "KABO_MACHINE_SMART200",
+      priority: "medium",
+      responseType: "kabo_machine",
+      lastUpdate: null,
+      recordId: 0,
+    };
 
-    // Check if data has changed
-    const gtplChanged = hasDataChanged(gtplRecord, lastGtplData);
-    const kaboChanged = hasDataChanged(kaboRecord, lastKaboData);
+    if (kaboData && kaboData.length > 0) {
+      const kaboRecord = kaboData[0];
+      const kaboTimestamp =
+        kaboRecord.created_at || kaboRecord.timestamp || currentTime;
 
-    // Prepare response
+      kaboResponse = {
+        ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
+        recordId: kaboRecord.id,
+        lastUpdate: new Date(kaboTimestamp).toISOString(),
+      };
+    }
+
+    // Prepare response with different JSON structure for each machine
     const response = {
       success: true,
-      message: "Machine status retrieved successfully",
+      message: "Machine status retrieved successfully based on timestamp",
       data: {
-        machineStatus,
-        coolingStatus,
-        internetStatus,
-        lastUpdate: {
-          gtpl: gtplTimestamp.toISOString(),
-          kabo: kaboTimestamp.toISOString(),
-        },
-        recordIds: {
-          gtpl: gtplRecord.id,
-          kabo: kaboRecord.id,
-        },
-        dataChanged: {
-          gtpl: gtplChanged,
-          kabo: kaboChanged,
-        },
+        gtpl: gtplResponse,
+        kabo: kaboResponse,
       },
       timestamp: currentTime.toISOString(),
     };
@@ -468,9 +466,26 @@ router.get("/status/public", async (req, res) => {
         process.env.NODE_ENV === "development"
           ? error.message
           : "Internal server error",
-      machineStatus: false,
-      coolingStatus: false,
-      internetStatus: false,
+      data: {
+        gtpl: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "GTPL_122_S7_1200_01",
+          priority: "high",
+          responseType: "gtpl_machine",
+          error: true,
+        },
+        kabo: {
+          machineStatus: false,
+          coolingStatus: false,
+          internetStatus: false,
+          machineType: "KABO_MACHINE_SMART200",
+          priority: "medium",
+          responseType: "kabo_machine",
+          error: true,
+        },
+      },
     });
   }
 });
@@ -480,17 +495,17 @@ router.get("/test", async (req, res) => {
   try {
     // Get latest record from gtpl_122_s7_1200_01 table
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
     // Get latest record from kabomachinedatasmart200 table
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
     );
 
     res.json({
       success: true,
-      message: "Raw data from both tables",
+      message: "Raw data from both tables (ordered by timestamp)",
       gtplData: gtplData.length > 0 ? gtplData[0] : null,
       kaboData: kaboData.length > 0 ? kaboData[0] : null,
       timestamp: new Date().toISOString(),

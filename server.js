@@ -17,7 +17,11 @@ const {
 } = require("./routes/websocket");
 const registerRoutes = require("./routes/register");
 const dataRouters = require("./routes/all700data");
-const machineStatusRoutes = require("./routes/machineStatus");
+const {
+  router: machineStatusRoutes,
+  checkAndBroadcastMachineStatus,
+  startTimeoutReset,
+} = require("./routes/machineStatus");
 
 const app = express();
 const server = http.createServer(app);
@@ -89,9 +93,22 @@ const dataCheckInterval = setInterval(() => {
   }
 }, 2000);
 
+// Check for machine status updates every 3 seconds
+const machineStatusInterval = setInterval(() => {
+  try {
+    checkAndBroadcastMachineStatus(wss);
+  } catch (error) {
+    console.error("Error checking and broadcasting machine status:", error);
+  }
+}, 3000);
+
+// Initialize timeout reset for machine status
+startTimeoutReset(wss);
+
 // Cleanup on server shutdown
 process.on("SIGTERM", () => {
   clearInterval(dataCheckInterval);
+  clearInterval(machineStatusInterval);
   wss.close(() => {
     console.log("WebSocket server closed");
     process.exit(0);

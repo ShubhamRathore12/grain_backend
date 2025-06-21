@@ -131,14 +131,14 @@ function startTimeoutReset(wss) {
 // Function to check and broadcast machine status
 async function checkAndBroadcastMachineStatus(wss) {
   try {
-    // Get latest record from gtpl_122_s7_1200_01 table
-    const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+    // Get latest record from gtpl_122_s7_1200_01 table with safer ordering
+    let [gtplData] = await pool.query(
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
     );
 
-    // Get latest record from kabomachinedatasmart200 table
-    const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+    // Get latest record from kabomachinedatasmart200 table with safer ordering
+    let [kaboData] = await pool.query(
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
     );
 
     const currentTime = new Date();
@@ -148,8 +148,13 @@ async function checkAndBroadcastMachineStatus(wss) {
     let gtplResponse = null;
     if (gtplData && gtplData.length > 0) {
       const gtplRecord = gtplData[0];
+      // Use the actual column names from your database
       const gtplTimestamp =
-        gtplRecord.created_at || gtplRecord.timestamp || currentTime;
+        gtplRecord.created_on ||
+        gtplRecord.timestamp ||
+        gtplRecord.updated_at ||
+        gtplRecord.date_created ||
+        currentTime;
 
       // Check if timestamp has changed
       const gtplChanged = hasTimestampChanged(gtplTimestamp, lastGtplTimestamp);
@@ -171,8 +176,13 @@ async function checkAndBroadcastMachineStatus(wss) {
     let kaboResponse = null;
     if (kaboData && kaboData.length > 0) {
       const kaboRecord = kaboData[0];
+      // Use the actual column names from your database
       const kaboTimestamp =
-        kaboRecord.created_at || kaboRecord.timestamp || currentTime;
+        kaboRecord.created_on ||
+        kaboRecord.timestamp ||
+        kaboRecord.updated_at ||
+        kaboRecord.date_created ||
+        currentTime;
 
       // Check if timestamp has changed
       const kaboChanged = hasTimestampChanged(kaboTimestamp, lastKaboTimestamp);
@@ -277,14 +287,14 @@ async function checkAndBroadcastMachineStatus(wss) {
 // Machine Status API
 router.get("/status", authenticateToken, async (req, res) => {
   try {
-    // Get latest record from gtpl_122_s7_1200_01 table
+    // Get latest record from gtpl_122_s7_1200_01 table with safer ordering
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
     );
 
-    // Get latest record from kabomachinedatasmart200 table
+    // Get latest record from kabomachinedatasmart200 table with safer ordering
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
     );
 
     const currentTime = new Date();
@@ -303,8 +313,13 @@ router.get("/status", authenticateToken, async (req, res) => {
 
     if (gtplData && gtplData.length > 0) {
       const gtplRecord = gtplData[0];
+      // Use the actual column names from your database
       const gtplTimestamp =
-        gtplRecord.created_at || gtplRecord.timestamp || currentTime;
+        gtplRecord.created_on ||
+        gtplRecord.timestamp ||
+        gtplRecord.updated_at ||
+        gtplRecord.date_created ||
+        currentTime;
 
       gtplResponse = {
         ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
@@ -327,8 +342,13 @@ router.get("/status", authenticateToken, async (req, res) => {
 
     if (kaboData && kaboData.length > 0) {
       const kaboRecord = kaboData[0];
+      // Use the actual column names from your database
       const kaboTimestamp =
-        kaboRecord.created_at || kaboRecord.timestamp || currentTime;
+        kaboRecord.created_on ||
+        kaboRecord.timestamp ||
+        kaboRecord.updated_at ||
+        kaboRecord.date_created ||
+        currentTime;
 
       kaboResponse = {
         ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
@@ -385,14 +405,14 @@ router.get("/status", authenticateToken, async (req, res) => {
 // Alternative endpoint without authentication for monitoring purposes
 router.get("/status/public", async (req, res) => {
   try {
-    // Get latest record from gtpl_122_s7_1200_01 table
+    // Get latest record from gtpl_122_s7_1200_01 table with safer ordering
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
     );
 
-    // Get latest record from kabomachinedatasmart200 table
+    // Get latest record from kabomachinedatasmart200 table with safer ordering
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
     );
 
     const currentTime = new Date();
@@ -411,8 +431,13 @@ router.get("/status/public", async (req, res) => {
 
     if (gtplData && gtplData.length > 0) {
       const gtplRecord = gtplData[0];
+      // Use the actual column names from your database
       const gtplTimestamp =
-        gtplRecord.created_at || gtplRecord.timestamp || currentTime;
+        gtplRecord.created_on ||
+        gtplRecord.timestamp ||
+        gtplRecord.updated_at ||
+        gtplRecord.date_created ||
+        currentTime;
 
       gtplResponse = {
         ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
@@ -435,8 +460,13 @@ router.get("/status/public", async (req, res) => {
 
     if (kaboData && kaboData.length > 0) {
       const kaboRecord = kaboData[0];
+      // Use the actual column names from your database
       const kaboTimestamp =
-        kaboRecord.created_at || kaboRecord.timestamp || currentTime;
+        kaboRecord.created_on ||
+        kaboRecord.timestamp ||
+        kaboRecord.updated_at ||
+        kaboRecord.date_created ||
+        currentTime;
 
       kaboResponse = {
         ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
@@ -493,19 +523,19 @@ router.get("/status/public", async (req, res) => {
 // Test endpoint to see raw data from both tables
 router.get("/test", async (req, res) => {
   try {
-    // Get latest record from gtpl_122_s7_1200_01 table
+    // Get latest record from gtpl_122_s7_1200_01 table with safer ordering
     const [gtplData] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
     );
 
-    // Get latest record from kabomachinedatasmart200 table
+    // Get latest record from kabomachinedatasmart200 table with safer ordering
     const [kaboData] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY created_at DESC, timestamp DESC LIMIT 1"
+      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1"
     );
 
     res.json({
       success: true,
-      message: "Raw data from both tables (ordered by timestamp)",
+      message: "Raw data from both tables (ordered by ID)",
       gtplData: gtplData.length > 0 ? gtplData[0] : null,
       kaboData: kaboData.length > 0 ? kaboData[0] : null,
       timestamp: new Date().toISOString(),
@@ -515,6 +545,53 @@ router.get("/test", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error fetching test data",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : "Internal server error",
+    });
+  }
+});
+
+// Diagnostic endpoint to check table structure
+router.get("/diagnose", async (req, res) => {
+  try {
+    // Get table structure information
+    const [gtplColumns] = await pool.query("DESCRIBE gtpl_122_s7_1200_01");
+
+    const [kaboColumns] = await pool.query("DESCRIBE kabomachinedatasmart200");
+
+    // Get sample data to see actual column names
+    const [gtplSample] = await pool.query(
+      "SELECT * FROM gtpl_122_s7_1200_01 LIMIT 1"
+    );
+
+    const [kaboSample] = await pool.query(
+      "SELECT * FROM kabomachinedatasmart200 LIMIT 1"
+    );
+
+    res.json({
+      success: true,
+      message: "Table structure diagnosis",
+      gtpl: {
+        columns: gtplColumns,
+        sampleData: gtplSample.length > 0 ? gtplSample[0] : null,
+        availableColumns:
+          gtplSample.length > 0 ? Object.keys(gtplSample[0]) : [],
+      },
+      kabo: {
+        columns: kaboColumns,
+        sampleData: kaboSample.length > 0 ? kaboSample[0] : null,
+        availableColumns:
+          kaboSample.length > 0 ? Object.keys(kaboSample[0]) : [],
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error diagnosing tables:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error diagnosing tables",
       error:
         process.env.NODE_ENV === "development"
           ? error.message

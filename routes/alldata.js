@@ -12,7 +12,7 @@ function broadcastData(wss, data) {
   });
 }
 
-// GET latest row from kabumachinedata table
+// GET latest row from gtpl_122_s7_1200_01 table
 router.get("/alldata", async (req, res) => {
   try {
     const [rows] = await pool.query(

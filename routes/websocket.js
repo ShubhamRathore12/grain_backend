@@ -12,11 +12,11 @@ function broadcastData(wss, data) {
   });
 }
 
-// GET latest row from kabumachinedata table
+// GET latest row from gtpl_122_s7_1200_01 table
 router.get("/current-data", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1`
     );
 
     res.json({
@@ -38,7 +38,7 @@ router.get("/current-data", async (req, res) => {
 async function checkAndBroadcastData(wss) {
   try {
     const [rows] = await pool.query(
-      `SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1`
     );
 
     const latest = rows[0];

@@ -29,7 +29,7 @@ router.get("/machine-data", sseHeaders, async (req, res) => {
   const checkForUpdates = async () => {
     try {
       const [rows] = await pool.query(
-        "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+        "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
       );
       const latest = rows[0];
 
@@ -70,7 +70,7 @@ router.get("/machine-data", sseHeaders, async (req, res) => {
 router.get("/current-data", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
     );
     res.json({
       success: true,

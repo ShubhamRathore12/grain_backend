@@ -19,7 +19,7 @@ router.get("/getAllDataSmart200", async (req, res) => {
 router.get("/getAllData", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM kabumachinedata ORDER BY id DESC LIMIT 100"
+      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 100"
     );
     res.status(200).json(rows);
   } catch (err) {

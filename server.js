@@ -17,6 +17,7 @@ const {
 } = require("./routes/websocket");
 const registerRoutes = require("./routes/register");
 const dataRouters = require("./routes/all700data");
+const machineStatusRoutes = require("./routes/machineStatus");
 
 const app = express();
 const server = http.createServer(app);
@@ -169,6 +170,7 @@ app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 app.use("/api/all700data", dataRouters);
+app.use("/api/machine", machineStatusRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

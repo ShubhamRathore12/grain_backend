@@ -4,9 +4,11 @@ const { pool } = require("../db");
 const { authenticateToken } = require("../middleware/auth");
 const WebSocket = require("ws");
 
-// Store last known timestamps for comparison
+// Store last known timestamps and IDs for comparison
 let lastGtplTimestamp = null;
 let lastKaboTimestamp = null;
+let lastGtplId = null;
+let lastKaboId = null;
 let lastUpdateTime = null;
 let timeoutInterval = null;
 
@@ -33,12 +35,39 @@ function hasTimestampChanged(newTimestamp, lastTimestamp) {
   return newDate.getTime() !== lastDate.getTime();
 }
 
-// Function to get machine-specific response based on data freshness
-function getMachineSpecificResponse(machineType, timestamp, currentTime) {
+// Function to check if ID has changed (indicating new data)
+function hasIdChanged(newId, lastId) {
+  if (!lastId) return true;
+  return newId !== lastId;
+}
+
+// Function to get machine-specific response based on data freshness and ID changes
+function getMachineSpecificResponse(
+  machineType,
+  timestamp,
+  currentTime,
+  hasNewData
+) {
   const timestampDate = new Date(timestamp);
   const fiveMinutesAgo = new Date(currentTime.getTime() - 5 * 60 * 1000);
   const oneMinuteAgo = new Date(currentTime.getTime() - 1 * 60 * 1000);
   const thirtySecondsAgo = new Date(currentTime.getTime() - 30 * 1000);
+
+  // If no new data (same ID), return false for all statuses
+  if (!hasNewData) {
+    return {
+      machineStatus: false,
+      coolingStatus: false,
+      internetStatus: false,
+      machineType:
+        machineType === "gtpl"
+          ? "GTPL_122_S7_1200_01"
+          : "KABO_MACHINE_SMART200",
+      priority: machineType === "gtpl" ? "high" : "medium",
+      responseType: machineType === "gtpl" ? "gtpl_machine" : "kabo_machine",
+      noNewData: true,
+    };
+  }
 
   // Different logic for different machines
   switch (machineType) {
@@ -50,6 +79,7 @@ function getMachineSpecificResponse(machineType, timestamp, currentTime) {
         machineType: "GTPL_122_S7_1200_01",
         priority: "high",
         responseType: "gtpl_machine",
+        noNewData: false,
       };
 
     case "kabo":
@@ -60,6 +90,7 @@ function getMachineSpecificResponse(machineType, timestamp, currentTime) {
         machineType: "KABO_MACHINE_SMART200",
         priority: "medium",
         responseType: "kabo_machine",
+        noNewData: false,
       };
 
     default:
@@ -70,6 +101,7 @@ function getMachineSpecificResponse(machineType, timestamp, currentTime) {
         machineType: "UNKNOWN",
         priority: "low",
         responseType: "unknown_machine",
+        noNewData: false,
       };
   }
 }
@@ -99,6 +131,7 @@ function startTimeoutReset(wss) {
           responseType: "gtpl_machine",
           lastUpdate: new Date().toISOString(),
           reset: true,
+          noNewData: true,
         },
         kabo: {
           machineStatus: false,
@@ -109,6 +142,7 @@ function startTimeoutReset(wss) {
           responseType: "kabo_machine",
           lastUpdate: new Date().toISOString(),
           reset: true,
+          noNewData: true,
         },
       },
       timestamp: new Date().toISOString(),
@@ -121,9 +155,11 @@ function startTimeoutReset(wss) {
       timestamp: new Date().toISOString(),
     });
 
-    // Reset stored timestamps
+    // Reset stored timestamps and IDs
     lastGtplTimestamp = null;
     lastKaboTimestamp = null;
+    lastGtplId = null;
+    lastKaboId = null;
     lastUpdateTime = null;
   }, 18000); // 18 seconds
 }
@@ -157,17 +193,31 @@ async function checkAndBroadcastMachineStatus(wss) {
         currentTime;
 
       // Check if timestamp has changed
-      const gtplChanged = hasTimestampChanged(gtplTimestamp, lastGtplTimestamp);
+      const gtplTimestampChanged = hasTimestampChanged(
+        gtplTimestamp,
+        lastGtplTimestamp
+      );
+      // Check if ID has changed (new data)
+      const gtplIdChanged = hasIdChanged(gtplRecord.id, lastGtplId);
 
-      if (gtplChanged) {
+      // Only update if either timestamp or ID has changed
+      if (gtplTimestampChanged || gtplIdChanged) {
         lastGtplTimestamp = gtplTimestamp;
+        lastGtplId = gtplRecord.id;
         hasAnyUpdate = true;
 
         gtplResponse = {
-          ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
+          ...getMachineSpecificResponse(
+            "gtpl",
+            gtplTimestamp,
+            currentTime,
+            gtplIdChanged
+          ),
           recordId: gtplRecord.id,
           lastUpdate: new Date(gtplTimestamp).toISOString(),
-          timestampChanged: true,
+          timestampChanged: gtplTimestampChanged,
+          idChanged: gtplIdChanged,
+          hasNewData: gtplIdChanged,
         };
       }
     }
@@ -185,17 +235,31 @@ async function checkAndBroadcastMachineStatus(wss) {
         currentTime;
 
       // Check if timestamp has changed
-      const kaboChanged = hasTimestampChanged(kaboTimestamp, lastKaboTimestamp);
+      const kaboTimestampChanged = hasTimestampChanged(
+        kaboTimestamp,
+        lastKaboTimestamp
+      );
+      // Check if ID has changed (new data)
+      const kaboIdChanged = hasIdChanged(kaboRecord.id, lastKaboId);
 
-      if (kaboChanged) {
+      // Only update if either timestamp or ID has changed
+      if (kaboTimestampChanged || kaboIdChanged) {
         lastKaboTimestamp = kaboTimestamp;
+        lastKaboId = kaboRecord.id;
         hasAnyUpdate = true;
 
         kaboResponse = {
-          ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
+          ...getMachineSpecificResponse(
+            "kabo",
+            kaboTimestamp,
+            currentTime,
+            kaboIdChanged
+          ),
           recordId: kaboRecord.id,
           lastUpdate: new Date(kaboTimestamp).toISOString(),
-          timestampChanged: true,
+          timestampChanged: kaboTimestampChanged,
+          idChanged: kaboIdChanged,
+          hasNewData: kaboIdChanged,
         };
       }
     }
@@ -210,7 +274,7 @@ async function checkAndBroadcastMachineStatus(wss) {
       // Prepare response with different JSON structure for each machine
       const response = {
         success: true,
-        message: "Machine status updated based on timestamp changes",
+        message: "Machine status updated based on timestamp and ID changes",
         data: {
           gtpl: gtplResponse || {
             machineStatus: false,
@@ -221,6 +285,9 @@ async function checkAndBroadcastMachineStatus(wss) {
             responseType: "gtpl_machine",
             lastUpdate: null,
             timestampChanged: false,
+            idChanged: false,
+            hasNewData: false,
+            noNewData: true,
           },
           kabo: kaboResponse || {
             machineStatus: false,
@@ -231,6 +298,9 @@ async function checkAndBroadcastMachineStatus(wss) {
             responseType: "kabo_machine",
             lastUpdate: null,
             timestampChanged: false,
+            idChanged: false,
+            hasNewData: false,
+            noNewData: true,
           },
         },
         timestamp: currentTime.toISOString(),
@@ -309,6 +379,8 @@ router.get("/status", authenticateToken, async (req, res) => {
       responseType: "gtpl_machine",
       lastUpdate: null,
       recordId: 0,
+      hasNewData: false,
+      noNewData: true,
     };
 
     if (gtplData && gtplData.length > 0) {
@@ -321,10 +393,20 @@ router.get("/status", authenticateToken, async (req, res) => {
         gtplRecord.date_created ||
         currentTime;
 
+      // Check if ID has changed (new data)
+      const gtplIdChanged = hasIdChanged(gtplRecord.id, lastGtplId);
+
       gtplResponse = {
-        ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
+        ...getMachineSpecificResponse(
+          "gtpl",
+          gtplTimestamp,
+          currentTime,
+          gtplIdChanged
+        ),
         recordId: gtplRecord.id,
         lastUpdate: new Date(gtplTimestamp).toISOString(),
+        hasNewData: gtplIdChanged,
+        idChanged: gtplIdChanged,
       };
     }
 
@@ -338,6 +420,8 @@ router.get("/status", authenticateToken, async (req, res) => {
       responseType: "kabo_machine",
       lastUpdate: null,
       recordId: 0,
+      hasNewData: false,
+      noNewData: true,
     };
 
     if (kaboData && kaboData.length > 0) {
@@ -350,17 +434,28 @@ router.get("/status", authenticateToken, async (req, res) => {
         kaboRecord.date_created ||
         currentTime;
 
+      // Check if ID has changed (new data)
+      const kaboIdChanged = hasIdChanged(kaboRecord.id, lastKaboId);
+
       kaboResponse = {
-        ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
+        ...getMachineSpecificResponse(
+          "kabo",
+          kaboTimestamp,
+          currentTime,
+          kaboIdChanged
+        ),
         recordId: kaboRecord.id,
         lastUpdate: new Date(kaboTimestamp).toISOString(),
+        hasNewData: kaboIdChanged,
+        idChanged: kaboIdChanged,
       };
     }
 
     // Prepare response with different JSON structure for each machine
     const response = {
       success: true,
-      message: "Machine status retrieved successfully based on timestamp",
+      message:
+        "Machine status retrieved successfully based on timestamp and ID changes",
       data: {
         gtpl: gtplResponse,
         kabo: kaboResponse,
@@ -427,6 +522,8 @@ router.get("/status/public", async (req, res) => {
       responseType: "gtpl_machine",
       lastUpdate: null,
       recordId: 0,
+      hasNewData: false,
+      noNewData: true,
     };
 
     if (gtplData && gtplData.length > 0) {
@@ -439,10 +536,20 @@ router.get("/status/public", async (req, res) => {
         gtplRecord.date_created ||
         currentTime;
 
+      // Check if ID has changed (new data)
+      const gtplIdChanged = hasIdChanged(gtplRecord.id, lastGtplId);
+
       gtplResponse = {
-        ...getMachineSpecificResponse("gtpl", gtplTimestamp, currentTime),
+        ...getMachineSpecificResponse(
+          "gtpl",
+          gtplTimestamp,
+          currentTime,
+          gtplIdChanged
+        ),
         recordId: gtplRecord.id,
         lastUpdate: new Date(gtplTimestamp).toISOString(),
+        hasNewData: gtplIdChanged,
+        idChanged: gtplIdChanged,
       };
     }
 
@@ -456,6 +563,8 @@ router.get("/status/public", async (req, res) => {
       responseType: "kabo_machine",
       lastUpdate: null,
       recordId: 0,
+      hasNewData: false,
+      noNewData: true,
     };
 
     if (kaboData && kaboData.length > 0) {
@@ -468,17 +577,28 @@ router.get("/status/public", async (req, res) => {
         kaboRecord.date_created ||
         currentTime;
 
+      // Check if ID has changed (new data)
+      const kaboIdChanged = hasIdChanged(kaboRecord.id, lastKaboId);
+
       kaboResponse = {
-        ...getMachineSpecificResponse("kabo", kaboTimestamp, currentTime),
+        ...getMachineSpecificResponse(
+          "kabo",
+          kaboTimestamp,
+          currentTime,
+          kaboIdChanged
+        ),
         recordId: kaboRecord.id,
         lastUpdate: new Date(kaboTimestamp).toISOString(),
+        hasNewData: kaboIdChanged,
+        idChanged: kaboIdChanged,
       };
     }
 
     // Prepare response with different JSON structure for each machine
     const response = {
       success: true,
-      message: "Machine status retrieved successfully based on timestamp",
+      message:
+        "Machine status retrieved successfully based on timestamp and ID changes",
       data: {
         gtpl: gtplResponse,
         kabo: kaboResponse,

@@ -12,19 +12,35 @@ const pool = mysql.createPool({
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
-  connectTimeout: 10000,
+  connectTimeout: 30000,
+  acquireTimeout: 30000,
+  timeout: 30000,
   dateStrings: true,
+  ssl:
+    process.env.NODE_ENV === "production"
+      ? { rejectUnauthorized: false }
+      : false,
 });
 
 // Test database connection
 async function testConnection() {
   try {
+    console.log(
+      `Attempting to connect to database: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`
+    );
     const connection = await pool.getConnection();
     console.log("Database connection successful");
     connection.release();
     return true;
   } catch (error) {
-    console.error("Database connection failed:", error);
+    console.error("Database connection failed:", error.message);
+    console.error("Connection details:", {
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      hasPassword: !!process.env.DB_PASSWORD,
+    });
     return false;
   }
 }
@@ -56,16 +72,42 @@ async function ensureUserTableExists() {
 
 // Initialize database
 async function initializeDatabase() {
-  try {
-    const isConnected = await testConnection();
-    if (!isConnected) {
-      throw new Error("Failed to connect to database");
+  const maxRetries = 3;
+  let retryCount = 0;
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(
+        `Attempting database connection (attempt ${
+          retryCount + 1
+        }/${maxRetries})...`
+      );
+      const isConnected = await testConnection();
+      if (!isConnected) {
+        throw new Error("Database connection test failed");
+      }
+      await ensureUserTableExists();
+      console.log("Database initialization completed successfully");
+      return;
+    } catch (error) {
+      retryCount++;
+      console.error(
+        `Database connection attempt ${retryCount} failed:`,
+        error.message
+      );
+
+      if (retryCount >= maxRetries) {
+        console.error("All database connection attempts failed");
+        throw new Error(
+          "Failed to connect to database after multiple attempts"
+        );
+      }
+
+      // Wait before retrying (exponential backoff)
+      const waitTime = Math.pow(2, retryCount) * 1000;
+      console.log(`Waiting ${waitTime}ms before retry...`);
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
     }
-    await ensureUserTableExists();
-    console.log("Database initialization completed");
-  } catch (error) {
-    console.error("Database initialization failed:", error);
-    throw error;
   }
 }
 

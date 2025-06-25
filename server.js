@@ -217,17 +217,39 @@ const PORT = process.env.PORT || 3000;
 // Initialize database and start server
 async function startServer() {
   try {
+    console.log("Starting server initialization...");
     await initializeDatabase();
     server.listen(PORT, () => {
       console.log(
-        `Server running on port ${PORT} in ${
+        `✅ Server running on port ${PORT} in ${
           process.env.NODE_ENV || "development"
         } mode`
       );
     });
   } catch (error) {
-    console.error("Failed to start server:", error);
-    process.exit(1);
+    console.error("❌ Failed to start server:", error.message);
+
+    if (error.message.includes("Failed to connect to database")) {
+      console.log("\n🔧 Database Connection Issues:");
+      console.log(
+        "1. Check if your database server allows external connections"
+      );
+      console.log(
+        "2. Verify environment variables are set correctly in Render"
+      );
+      console.log("3. Consider using a cloud database service for production");
+      console.log(
+        "4. Contact your hosting provider to allow Render's IP addresses"
+      );
+    }
+
+    // For now, start the server anyway (without database)
+    console.log("\n⚠️  Starting server without database connection...");
+    server.listen(PORT, () => {
+      console.log(
+        `⚠️  Server running on port ${PORT} (database connection failed)`
+      );
+    });
   }
 }
 

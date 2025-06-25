@@ -8,7 +8,7 @@ const path = require("path");
 require("dotenv").config();
 
 // Import database initialization
-const { initializeDatabase } = require("./db");
+const { initializeDatabase, safeQuery } = require("./db");
 
 // Import routes
 const authRoutes = require("./routes/auth");
@@ -132,7 +132,7 @@ app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const [rows] = await pool.query(
+    const rows = await safeQuery(
       "SELECT * FROM kabu_users WHERE username = ? AND password = ?",
       [username, password]
     );
@@ -167,7 +167,18 @@ app.post("/api/login", async (req, res) => {
       user: userWithoutPassword,
     });
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("Login error:", error.message);
+
+    if (
+      error.message.includes("Database connection unavailable") ||
+      error.message.includes("ETIMEDOUT")
+    ) {
+      return res.status(503).json({
+        message:
+          "Database service temporarily unavailable. Please try again later.",
+      });
+    }
+
     res.status(500).json({ message: "Server error while logging in" });
   }
 });
@@ -200,6 +211,28 @@ app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 app.use("/api/all700data", dataRouters);
 app.use("/api/machine", machineStatusRoutes);
+
+// Health check endpoint
+app.get("/api/health", async (req, res) => {
+  const { isDatabaseConnected } = require("./db");
+
+  try {
+    const dbStatus = isDatabaseConnected();
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      database: dbStatus ? "connected" : "disconnected",
+      environment: process.env.NODE_ENV || "development",
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "error",
+      timestamp: new Date().toISOString(),
+      database: "error",
+      error: error.message,
+    });
+  }
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {

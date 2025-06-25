@@ -1,6 +1,11 @@
 const mysql = require("mysql2/promise");
 require("dotenv").config();
 
+// Track database connection status
+let isDatabaseConnected = false;
+let lastConnectionAttempt = 0;
+const CONNECTION_RETRY_INTERVAL = 30000; // 30 seconds
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
@@ -12,9 +17,9 @@ const pool = mysql.createPool({
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
-  connectTimeout: 30000,
-  acquireTimeout: 30000,
-  timeout: 30000,
+  connectTimeout: 30000, // Increased timeout for deployment
+  acquireTimeout: 30000, // Added acquire timeout
+  timeout: 30000, // Added query timeout
   dateStrings: true,
   ssl:
     process.env.NODE_ENV === "production"
@@ -31,6 +36,7 @@ async function testConnection() {
     const connection = await pool.getConnection();
     console.log("Database connection successful");
     connection.release();
+    isDatabaseConnected = true;
     return true;
   } catch (error) {
     console.error("Database connection failed:", error.message);
@@ -41,14 +47,40 @@ async function testConnection() {
       user: process.env.DB_USER,
       hasPassword: !!process.env.DB_PASSWORD,
     });
+    isDatabaseConnected = false;
     return false;
+  }
+}
+
+// Safe database query function with connection check
+async function safeQuery(query, params = []) {
+  const now = Date.now();
+
+  // If we recently failed to connect, don't try again immediately
+  if (
+    !isDatabaseConnected &&
+    now - lastConnectionAttempt < CONNECTION_RETRY_INTERVAL
+  ) {
+    throw new Error("Database connection unavailable");
+  }
+
+  lastConnectionAttempt = now;
+
+  try {
+    const [rows] = await pool.query(query, params);
+    isDatabaseConnected = true;
+    return rows;
+  } catch (error) {
+    isDatabaseConnected = false;
+    console.error("Database query error:", error.message);
+    throw error;
   }
 }
 
 // Function to ensure the users table exists
 async function ensureUserTableExists() {
   try {
-    await pool.query(`
+    await safeQuery(`
       CREATE TABLE IF NOT EXISTS kabu_users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         accountType VARCHAR(50),
@@ -113,7 +145,9 @@ async function initializeDatabase() {
 
 module.exports = {
   pool,
+  safeQuery,
   ensureUserTableExists,
   initializeDatabase,
   testConnection,
+  isDatabaseConnected: () => isDatabaseConnected,
 };

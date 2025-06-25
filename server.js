@@ -7,6 +7,9 @@ const { pool } = require("./db");
 const path = require("path");
 require("dotenv").config();
 
+// Import database initialization
+const { initializeDatabase } = require("./db");
+
 // Import routes
 const authRoutes = require("./routes/auth");
 const dataRoutes = require("./routes/data");
@@ -48,6 +51,15 @@ const wss = new WebSocket.Server({
 
 // Store WebSocket server instance in app for use in routes
 app.set("wss", wss);
+
+// Utility: Broadcast to all WebSocket clients
+function broadcastData(data) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+}
 
 // WebSocket connection handling with better error handling
 wss.on("connection", (ws, req) => {
@@ -201,10 +213,22 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(
-    `Server running on port ${PORT} in ${
-      process.env.NODE_ENV || "development"
-    } mode`
-  );
-});
+
+// Initialize database and start server
+async function startServer() {
+  try {
+    await initializeDatabase();
+    server.listen(PORT, () => {
+      console.log(
+        `Server running on port ${PORT} in ${
+          process.env.NODE_ENV || "development"
+        } mode`
+      );
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
+startServer();

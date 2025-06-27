@@ -355,7 +355,7 @@ async function checkAndBroadcastMachineStatus(wss) {
 }
 
 // Machine Status API
-router.get("/status", authenticateToken, async (req, res) => {
+router.get("/status", async (req, res) => {
   try {
     // Get latest record from gtpl_122_s7_1200_01 table with safer ordering
     const [gtplData] = await pool.query(

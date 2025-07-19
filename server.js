@@ -19,6 +19,10 @@ const {
   checkAndBroadcastData,
 } = require("./routes/websocket");
 const registerRoutes = require("./routes/register");
+const tableRoute = require("./routes/table");
+const statusPublicRoute = require("./routes/status-public");
+const reportsRoute = require("./routes/reports");
+const faultLogsRoute = require("./routes/faultLogs");
 const dataRouters = require("./routes/all700data");
 const {
   router: machineStatusRoutes,
@@ -211,7 +215,11 @@ app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 app.use("/api/all700data", dataRouters);
 app.use("/api/machine", machineStatusRoutes);
+app.use("/api/table", tableRoute);
+app.use("/api/status-public", statusPublicRoute);
+app.use("/api/fault-logs", faultLogsRoute);
 
+app.use("/api/reports", reportsRoute);
 // Health check endpoint
 app.get("/api/health", async (req, res) => {
   const { isDatabaseConnected } = require("./db");

@@ -54,7 +54,14 @@ const ExcelDownloadComponent = () => {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        let errorData = {};
+        try {
+          errorData = await response.json();
+        } catch (e) {}
+        if (errorData && errorData.downloadUrl) {
+          window.location.href = errorData.downloadUrl;
+          return;
+        }
         throw new Error(errorData.error || "Download failed");
       }
 

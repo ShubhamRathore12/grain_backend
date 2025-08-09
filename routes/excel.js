@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
 const XLSX = require("xlsx");
+const { URL } = require("url");
 
 const ALLOWED_TABLES = [
   "GTPL_108_gT_40E_P_S7_200_Germany",
@@ -192,7 +193,7 @@ router.get("/download-excel", async (req, res) => {
     const offset = (page - 1) * limit;
 
     try {
-      const [countRows, dataRows] = await Promise.all([
+      const [countPair, dataPair] = await Promise.all([
         withTimeout(
           pool.query(`SELECT COUNT(*) as total ${baseQuery}`, queryParams),
           QUERY_TIMEOUT,
@@ -208,14 +209,10 @@ router.get("/download-excel", async (req, res) => {
         ),
       ]);
 
-      const total = Number(
-        countRows?.[0]?.[0]?.total || countRows?.[0]?.total || 0
-      );
-      const rows = Array.isArray(dataRows?.[0])
-        ? dataRows[0]
-        : Array.isArray(dataRows)
-        ? dataRows
-        : [];
+      const [countRows] = countPair; // rows for count
+      const [rows] = dataPair; // rows for data
+
+      const total = Number(countRows?.[0]?.total || 0);
 
       return res.json({
         table,

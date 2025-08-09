@@ -1,14 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
-const { pool, ensureUserTableExists } = require("../db");
+const { safeQuery, ensureUserTableExists } = require("../db");
 
 // Login route
 router.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const [rows] = await pool.query(
+    const rows = await safeQuery(
       "SELECT * FROM kabu_users WHERE username = ? AND password = ?",
       [username, password]
     );
@@ -44,7 +44,18 @@ router.post("/login", async (req, res) => {
       token: token,
     });
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("Login error:", error.message);
+
+    if (
+      error.message.includes("Database connection unavailable") ||
+      error.message.includes("ETIMEDOUT")
+    ) {
+      return res.status(503).json({
+        message:
+          "Database service temporarily unavailable. Please try again later.",
+      });
+    }
+
     res.status(500).json({ message: "Server error while logging in" });
   }
 });
@@ -61,13 +72,14 @@ router.post("/register", async (req, res) => {
     company,
     password,
     monitorAccess,
+    location,
   } = req.body;
 
   try {
     await ensureUserTableExists();
 
     // Check for duplicate username
-    const [existingUser] = await pool.query(
+    const existingUser = await safeQuery(
       "SELECT * FROM kabu_users WHERE username = ?",
       [username]
     );
@@ -84,10 +96,10 @@ router.post("/register", async (req, res) => {
       : monitorAccess || "";
 
     // Insert new user
-    await pool.query(
+    await safeQuery(
       `INSERT INTO kabu_users 
-      (accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess,location) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)`,
       [
         accountType,
         firstName,
@@ -98,6 +110,7 @@ router.post("/register", async (req, res) => {
         company,
         password,
         monitorAccessStr,
+        location || null,
       ]
     );
 
@@ -106,7 +119,19 @@ router.post("/register", async (req, res) => {
       message: "User registered successfully",
     });
   } catch (error) {
-    console.error("Registration error:", error);
+    console.error("Registration error:", error.message);
+
+    if (
+      error.message.includes("Database connection unavailable") ||
+      error.message.includes("ETIMEDOUT")
+    ) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Database service temporarily unavailable. Please try again later.",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Server error occurred during registration",

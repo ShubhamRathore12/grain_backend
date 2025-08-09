@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { pool } = require("../db");
+const { safeQuery } = require("../db");
 const WebSocket = require("ws");
 
 // Utility: Broadcast to all WebSocket clients
@@ -12,10 +12,10 @@ function broadcastData(wss, data) {
   });
 }
 
-// GET latest row from kabumachinedata table
+// GET latest row from gtpl_122_s7_1200_01 table
 router.get("/alldata", async (req, res) => {
   try {
-    const [rows] = await pool.query(
+    const rows = await safeQuery(
       `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
     );
 
@@ -25,7 +25,19 @@ router.get("/alldata", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("Error fetching current data:", error);
+    console.error("Error fetching current data:", error.message);
+
+    if (
+      error.message.includes("Database connection unavailable") ||
+      error.message.includes("ETIMEDOUT")
+    ) {
+      return res.status(503).json({
+        success: false,
+        error: "Database service temporarily unavailable",
+        message: "Please try again later",
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: "Failed to fetch current data",
@@ -37,7 +49,7 @@ router.get("/alldata", async (req, res) => {
 // Function to broadcast latest data over WebSocket
 async function checkAndBroadcastData(wss) {
   try {
-    const [rows] = await pool.query(
+    const rows = await safeQuery(
       `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
     );
 
@@ -51,13 +63,20 @@ async function checkAndBroadcastData(wss) {
       });
     }
   } catch (err) {
-    console.error("DB fetch error:", err);
-    broadcastData(wss, {
-      type: "error",
-      error: "DB error",
-      message: err.message,
-      timestamp: new Date().toISOString(),
-    });
+    console.error("DB fetch error:", err.message);
+
+    // Only broadcast error if it's not a connection timeout
+    if (
+      !err.message.includes("Database connection unavailable") &&
+      !err.message.includes("ETIMEDOUT")
+    ) {
+      broadcastData(wss, {
+        type: "error",
+        error: "DB error",
+        message: err.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 }
 

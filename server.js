@@ -7,6 +7,9 @@ const { pool } = require("./db");
 const path = require("path");
 require("dotenv").config();
 
+// Import database initialization
+const { initializeDatabase, safeQuery } = require("./db");
+
 // Import routes
 const authRoutes = require("./routes/auth");
 const dataRoutes = require("./routes/data");
@@ -16,7 +19,16 @@ const {
   checkAndBroadcastData,
 } = require("./routes/websocket");
 const registerRoutes = require("./routes/register");
-const excelRoutes = require("./routes/excel");
+const tableRoute = require("./routes/table");
+const statusPublicRoute = require("./routes/status-public");
+const reportsRoute = require("./routes/reports");
+const faultLogsRoute = require("./routes/faultLogs");
+const dataRouters = require("./routes/all700data");
+const {
+  router: machineStatusRoutes,
+  checkAndBroadcastMachineStatus,
+  startTimeoutReset,
+} = require("./routes/machineStatus");
 
 const app = express();
 const server = http.createServer(app);
@@ -43,6 +55,15 @@ const wss = new WebSocket.Server({
 
 // Store WebSocket server instance in app for use in routes
 app.set("wss", wss);
+
+// Utility: Broadcast to all WebSocket clients
+function broadcastData(data) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+}
 
 // WebSocket connection handling with better error handling
 wss.on("connection", (ws, req) => {
@@ -88,9 +109,22 @@ const dataCheckInterval = setInterval(() => {
   }
 }, 2000);
 
+// Check for machine status updates every 3 seconds
+const machineStatusInterval = setInterval(() => {
+  try {
+    checkAndBroadcastMachineStatus(wss);
+  } catch (error) {
+    console.error("Error checking and broadcasting machine status:", error);
+  }
+}, 3000);
+
+// Initialize timeout reset for machine status
+startTimeoutReset(wss);
+
 // Cleanup on server shutdown
 process.on("SIGTERM", () => {
   clearInterval(dataCheckInterval);
+  clearInterval(machineStatusInterval);
   wss.close(() => {
     console.log("WebSocket server closed");
     process.exit(0);
@@ -102,7 +136,7 @@ app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const [rows] = await pool.query(
+    const rows = await safeQuery(
       "SELECT * FROM kabu_users WHERE username = ? AND password = ?",
       [username, password]
     );
@@ -137,7 +171,18 @@ app.post("/api/login", async (req, res) => {
       user: userWithoutPassword,
     });
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("Login error:", error.message);
+
+    if (
+      error.message.includes("Database connection unavailable") ||
+      error.message.includes("ETIMEDOUT")
+    ) {
+      return res.status(503).json({
+        message:
+          "Database service temporarily unavailable. Please try again later.",
+      });
+    }
+
     res.status(500).json({ message: "Server error while logging in" });
   }
 });
@@ -168,7 +213,34 @@ app.use("/api/data", dataRoutes);
 app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
-app.use("/api/excel", excelRoutes);
+app.use("/api/all700data", dataRouters);
+app.use("/api/machine", machineStatusRoutes);
+app.use("/api/table", tableRoute);
+app.use("/api/status-public", statusPublicRoute);
+app.use("/api/fault-logs", faultLogsRoute);
+
+app.use("/api/reports", reportsRoute);
+// Health check endpoint
+app.get("/api/health", async (req, res) => {
+  const { isDatabaseConnected } = require("./db");
+
+  try {
+    const dbStatus = isDatabaseConnected();
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      database: dbStatus ? "connected" : "disconnected",
+      environment: process.env.NODE_ENV || "development",
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "error",
+      timestamp: new Date().toISOString(),
+      database: "error",
+      error: error.message,
+    });
+  }
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -182,10 +254,44 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(
-    `Server running on port ${PORT} in ${
-      process.env.NODE_ENV || "development"
-    } mode`
-  );
-});
+
+// Initialize database and start server
+async function startServer() {
+  try {
+    console.log("Starting server initialization...");
+    await initializeDatabase();
+    server.listen(PORT, () => {
+      console.log(
+        `✅ Server running on port ${PORT} in ${
+          process.env.NODE_ENV || "development"
+        } mode`
+      );
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error.message);
+
+    if (error.message.includes("Failed to connect to database")) {
+      console.log("\n🔧 Database Connection Issues:");
+      console.log(
+        "1. Check if your database server allows external connections"
+      );
+      console.log(
+        "2. Verify environment variables are set correctly in Render"
+      );
+      console.log("3. Consider using a cloud database service for production");
+      console.log(
+        "4. Contact your hosting provider to allow Render's IP addresses"
+      );
+    }
+
+    // For now, start the server anyway (without database)
+    console.log("\n⚠️  Starting server without database connection...");
+    server.listen(PORT, () => {
+      console.log(
+        `⚠️  Server running on port ${PORT} (database connection failed)`
+      );
+    });
+  }
+}
+
+startServer();

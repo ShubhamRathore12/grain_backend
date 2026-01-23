@@ -17,7 +17,18 @@ const allowedTables = new Set([
   "GTPL_116_GT_240E_S7_1200",
   "GTPL_117_GT_320E_S7_1200",
   "GTPL_121_GT1000T",
-  "gtpl_122_s7_1200_01"
+  "gtpl_122_s7_1200_01",
+  "GTPL_124_GT_450T_S7_1200",
+  'GTPL_131_GT_650T_S7_1200',
+  "GTPL_132_GT300AP",
+  "GTPL_137_GT_450T_S7_1200",
+  "GTPL_138_GT_450T_S7_1200",
+  "GTPL_136_GT_450AP_S7_1200",
+  "GTPL_134_GT_450T_S7_1200",
+  "GTPL_135_GT_450T_S7_1200",
+
+  "GTPL_061_GT_450T_S7_1200",
+  "GTPL_139_GT300AP"
 ]);
 
 router.get("/", async (req, res) => {

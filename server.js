@@ -24,6 +24,8 @@ const statusPublicRoute = require("./routes/status-public");
 const reportsRoute = require("./routes/reports");
 const faultLogsRoute = require("./routes/faultLogs");
 const dataRouters = require("./routes/all700data");
+const getAllDataSmart200Route = require("./routes/getAllDataSmart200");
+
 const {
   router: machineStatusRoutes,
   checkAndBroadcastMachineStatus,
@@ -214,6 +216,8 @@ app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 app.use("/api/all700data", dataRouters);
+app.use("/api/getAllDataSmart200", getAllDataSmart200Route);
+
 app.use("/api/machine", machineStatusRoutes);
 app.use("/api/table", tableRoute);
 app.use("/api/status-public", statusPublicRoute);

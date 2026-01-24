@@ -242,6 +242,33 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// Reports health check endpoint
+app.get("/api/reports/health", async (req, res) => {
+  try {
+    const { pool } = require("./db");
+    
+    // Test database connection with a simple query
+    const [rows] = await pool.query("SELECT 1 as test");
+    const dbWorking = rows && rows.length > 0;
+    
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      database: dbWorking ? "connected" : "disconnected",
+      reports: "available",
+      tables: "multiple",
+    });
+  } catch (error) {
+    console.error("Reports health check failed:", error.message);
+    res.status(503).json({
+      status: "error",
+      timestamp: new Date().toISOString(),
+      database: "error",
+      error: error.message,
+    });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);

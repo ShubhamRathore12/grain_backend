@@ -25,6 +25,9 @@ const reportsRoute = require("./routes/reports");
 const faultLogsRoute = require("./routes/faultLogs");
 const dataRouters = require("./routes/all700data");
 const getAllDataSmart200Route = require("./routes/getAllDataSmart200");
+const activeFaultRoute = require("./routes/getActiveFault");
+
+
 
 const {
   router: machineStatusRoutes,
@@ -222,6 +225,9 @@ app.use("/api/machine", machineStatusRoutes);
 app.use("/api/table", tableRoute);
 app.use("/api/status-public", statusPublicRoute);
 app.use("/api/fault-logs", faultLogsRoute);
+app.use("/api/active-fault", activeFaultRoute);
+
+
 
 app.use("/api/reports", reportsRoute);
 // Health check endpoint

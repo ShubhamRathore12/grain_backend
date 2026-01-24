@@ -1,5 +1,5 @@
 // S7-200 specific tags
-export const S7_200_TAGS = [
+const S7_200_TAGS = [
   "AFTER_HEAT_TEMP_MORE_THAN_50",
   "AFTER_HEAT_TEMP_SENSOR_TH_OPEN",
   "AFTER_HEAT_TEMP_SENSOR_TH_SHORT_CIRCUIT",
@@ -34,7 +34,7 @@ export const S7_200_TAGS = [
 ];
 
 // S7-1200 specific tags
-export const S7_1200_TAGS = [
+const S7_1200_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Oil_pressure_low",
   "Blower_drive_fault",
@@ -75,7 +75,7 @@ export const S7_1200_TAGS = [
   "Air_outlet_sensor_2_short_circuit",
 ];
 
-export const GPL_115_TAGS = [
+const GPL_115_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Condenser_fan_door_open",
   "Blower_drive_fault",
@@ -120,7 +120,7 @@ export const GPL_115_TAGS = [
   "Warning_HP_transducer_failure",
 ];
 
-export const GPL_117_TAGS = [
+const GPL_117_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Cond_fan1_circuit_breaker_fault_I2_2",
   "Condenser_fan1_door_open",
@@ -170,7 +170,7 @@ export const GPL_117_TAGS = [
   "Warning_HP_transducer_failure",
 ];
 
-export const GPL_124_TAGS = [
+const GPL_124_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Oil_pressure_low",
   "Blower_drive_fault",
@@ -206,7 +206,7 @@ export const GPL_124_TAGS = [
   "T0_2_sensor_short",
 ];
 
-export const GPL_132_TAGS = [
+const GPL_132_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Oil_pressure_low",
   "Blower_drive_fault",
@@ -238,7 +238,7 @@ export const GPL_132_TAGS = [
   "Air_outlet_sensor_T0_2_short_circuit",
 ];
 
-export const GTPL_139_TAGS = [
+const GTPL_139_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Oil_pressure_low",
   "Blower_drive_fault",
@@ -270,7 +270,7 @@ export const GTPL_139_TAGS = [
   "Air_outlet_sensor_T0_2_short_circuit",
 ];
 
-export const GTPL_137_TAGS = [
+const GTPL_137_TAGS = [
   "Compressor_circuit_breaker_I0_0",
   "Compressor_module_feedback_error_I0_1",
   "Compressor_in_operation_I0_2",
@@ -294,7 +294,7 @@ export const GTPL_137_TAGS = [
   "Cond_fan4_circuit_breaker_fault_I2_7",
 ];
 
-export const GTPL_138_TAGS = [
+const GTPL_138_TAGS = [
   "Compressor_circuit_breaker_I0_0",
   "Compressor_module_feedback_error_I0_1",
   "Compressor_in_operation_I0_2",
@@ -318,7 +318,7 @@ export const GTPL_138_TAGS = [
   "Cond_fan4_circuit_breaker_fault_I2_7",
 ];
 
-export const GTPL_137_OUTPUT_TAGS = [
+const GTPL_137_OUTPUT_TAGS = [
   "Compressor_on_Q0_0",
   "Compressor_motor_reset_Q0_1",
   "Spare_Q0_2",
@@ -338,7 +338,7 @@ export const GTPL_137_OUTPUT_TAGS = [
   "Condenser_fan4_on_Q2_6",
 ];
 
-export const GTPL_138_OUTPUT_TAGS = [
+const GTPL_138_OUTPUT_TAGS = [
   "Compressor_on_Q0_0",
   "Compressor_motor_reset_Q0_1",
   "Spare_Q0_2",
@@ -358,7 +358,7 @@ export const GTPL_138_OUTPUT_TAGS = [
   "Condenser_fan4_on_Q2_6",
 ];
 
-export const GTPL_134_135_TAGS = [
+const GTPL_134_135_TAGS = [
   "Compressor_circuit_breaker_fault",
   "Oil_pressure_low",
   "Blower_drive_fault",
@@ -397,7 +397,7 @@ export const GTPL_134_135_TAGS = [
 ];
 
 // Machine configuration mapping
-export const MACHINE_CONFIG = {
+const MACHINE_CONFIG = {
   // S7-200
   "GTPL-118-gT-80E-P-S7-200": {
     table: "kabomachinedatasmart200",
@@ -529,9 +529,27 @@ export const MACHINE_CONFIG = {
 };
 
 // Optional alias mapping (e.g. "GPL-115" → "GTPL-115-gT-180E-S7-1200")
-export const MACHINE_NAME_ALIASES = {
+const MACHINE_NAME_ALIASES = {
   "GPL-115": "GTPL-115-gT-180E-S7-1200",
   "GPL-117": "GTPL-117-gT-320E-S7-1200",
   "GTPL-061": "GTPL-061-gT-450T-S7-1200",
   // "GPL-132":'GTPL-132-300-AP-S7-1200'
+};
+
+// CommonJS exports
+module.exports = {
+  S7_200_TAGS,
+  S7_1200_TAGS,
+  GPL_115_TAGS,
+  GPL_117_TAGS,
+  GPL_124_TAGS,
+  GPL_132_TAGS,
+  GTPL_139_TAGS,
+  GTPL_137_TAGS,
+  GTPL_138_TAGS,
+  GTPL_137_OUTPUT_TAGS,
+  GTPL_138_OUTPUT_TAGS,
+  GTPL_134_135_TAGS,
+  MACHINE_CONFIG,
+  MACHINE_NAME_ALIASES
 };

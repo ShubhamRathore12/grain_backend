@@ -224,8 +224,8 @@ app.use("/api/getAllDataSmart200", getAllDataSmart200Route);
 app.use("/api/machine", machineStatusRoutes);
 app.use("/api/table", tableRoute);
 app.use("/api/status-public", statusPublicRoute);
-app.use("/api/fault-logs", faultLogsRoute);
-app.use("/api/active-fault", activeFaultRoute);
+app.use("/api/faultLogs", faultLogsRoute);
+app.use("/api/getActiveFault", activeFaultRoute);
 
 
 

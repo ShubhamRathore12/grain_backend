@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('@/lib/db');
+const { pool } = require('../db');
 const { MACHINE_NAME_ALIASES, MACHINE_CONFIG } = require('../utils/machineConfig');
 
 

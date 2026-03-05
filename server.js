@@ -24,6 +24,11 @@ const statusPublicRoute = require("./routes/status-public");
 const reportsRoute = require("./routes/reports");
 const faultLogsRoute = require("./routes/faultLogs");
 const dataRouters = require("./routes/all700data");
+const getAllDataSmart200Route = require("./routes/getAllDataSmart200");
+const activeFaultRoute = require("./routes/getActiveFault");
+
+
+
 const {
   router: machineStatusRoutes,
   checkAndBroadcastMachineStatus,
@@ -214,10 +219,15 @@ app.use("/api/alldata", alldataRoutes);
 app.use("/api/ws", websocketRoutes);
 app.use("/api/register", registerRoutes);
 app.use("/api/all700data", dataRouters);
+app.use("/api/getAllDataSmart200", getAllDataSmart200Route);
+
 app.use("/api/machine", machineStatusRoutes);
 app.use("/api/table", tableRoute);
 app.use("/api/status-public", statusPublicRoute);
-app.use("/api/fault-logs", faultLogsRoute);
+app.use("/api/faultLogs", faultLogsRoute);
+app.use("/api/getActiveFault", activeFaultRoute);
+
+
 
 app.use("/api/reports", reportsRoute);
 // Health check endpoint
@@ -233,6 +243,33 @@ app.get("/api/health", async (req, res) => {
       environment: process.env.NODE_ENV || "development",
     });
   } catch (error) {
+    res.status(503).json({
+      status: "error",
+      timestamp: new Date().toISOString(),
+      database: "error",
+      error: error.message,
+    });
+  }
+});
+
+// Reports health check endpoint
+app.get("/api/reports/health", async (req, res) => {
+  try {
+    const { pool } = require("./db");
+    
+    // Test database connection with a simple query
+    const [rows] = await pool.query("SELECT 1 as test");
+    const dbWorking = rows && rows.length > 0;
+    
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      database: dbWorking ? "connected" : "disconnected",
+      reports: "available",
+      tables: "multiple",
+    });
+  } catch (error) {
+    console.error("Reports health check failed:", error.message);
     res.status(503).json({
       status: "error",
       timestamp: new Date().toISOString(),

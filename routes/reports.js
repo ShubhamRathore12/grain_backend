@@ -3,7 +3,7 @@ const XLSX = require("xlsx");
 const { Readable } = require("stream");
 
 const ALLOWED_TABLES = [
-   "GTPL_108_gT_40E_P_S7_200_Germany",
+  "GTPL_108_gT_40E_P_S7_200_Germany",
   "GTPL_109_gT_40E_P_S7_200_Germany",
   "GTPL_110_gT_40E_P_S7_200_Germany",
   "GTPL_111_gT_80E_P_S7_200_Germany",
@@ -19,7 +19,8 @@ const ALLOWED_TABLES = [
   "GTPL_121_GT1000T",
   "gtpl_122_s7_1200_01",
   "GTPL_124_GT_450T_S7_1200",
-  'GTPL_133_GT_650T_S7_1200',
+  "GTPL_133_GT_650T_S7_1200",
+  "GTPL_131_GT_650T_S7_1200",
   "GTPL_132_GT300AP",
   "GTPL_137_GT_450T_S7_1200",
   "GTPL_138_GT_450T_S7_1200",
@@ -30,7 +31,7 @@ const ALLOWED_TABLES = [
   "GTPL_139_GT300AP",
   "GTPL_142_GT_450AP_S7_1200",
   "GTPL_123_GT_450AP_S7_1200",
-  "GTPL_143_GT_450AP_S7_1200"
+  "GTPL_143_GT_450AP_S7_1200",
 ];
 
 const express = require("express");

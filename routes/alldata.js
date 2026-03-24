@@ -2,6 +2,11 @@ const express = require("express");
 const router = express.Router();
 const { safeQuery } = require("../db");
 const WebSocket = require("ws");
+const { MACHINE_CONFIG } = require("../utils/machineConfig");
+
+const allowedTables = new Set(
+  Object.values(MACHINE_CONFIG).map((c) => c.table)
+);
 
 // Utility: Broadcast to all WebSocket clients
 function broadcastData(wss, data) {
@@ -12,11 +17,21 @@ function broadcastData(wss, data) {
   });
 }
 
-// GET latest row from gtpl_122_s7_1200_01 table
+// GET latest row from any allowed table
 router.get("/alldata", async (req, res) => {
   try {
+    const table = req.query.table || "kabomachinedatasmart200";
+
+    if (!allowedTables.has(table)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid table name",
+        allowedTables: Array.from(allowedTables),
+      });
+    }
+
     const rows = await safeQuery(
-      `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
 
     res.json({
@@ -47,10 +62,10 @@ router.get("/alldata", async (req, res) => {
 });
 
 // Function to broadcast latest data over WebSocket
-async function checkAndBroadcastData(wss) {
+async function checkAndBroadcastData(wss, table = "kabomachinedatasmart200") {
   try {
     const rows = await safeQuery(
-      `SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
 
     const latest = rows[0];

@@ -1,12 +1,23 @@
 const express = require("express");
 const router = express.Router();
 const { pool } = require("../db"); // Adjust path if needed
+const { MACHINE_CONFIG } = require("../utils/machineConfig");
 
-// GET latest 100 rows for S7-200
+const allowedTables = new Set(
+  Object.values(MACHINE_CONFIG).map((c) => c.table)
+);
+
+// GET latest 100 rows - accepts ?table= param
 router.get("/getAllDataSmart200", async (req, res) => {
   try {
+    const table = req.query.table || "kabomachinedatasmart200";
+
+    if (!allowedTables.has(table)) {
+      return res.status(400).json({ error: "Invalid table name" });
+    }
+
     const [rows] = await pool.query(
-      "SELECT * FROM kabomachinedatasmart200 ORDER BY id DESC LIMIT 100"
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 100`
     );
     res.status(200).json(rows);
   } catch (err) {
@@ -15,11 +26,17 @@ router.get("/getAllDataSmart200", async (req, res) => {
   }
 });
 
-// Add similar one for S7-1200
+// GET latest 100 rows - accepts ?table= param
 router.get("/getAllData", async (req, res) => {
   try {
+    const table = req.query.table || "gtpl_122_s7_1200_01";
+
+    if (!allowedTables.has(table)) {
+      return res.status(400).json({ error: "Invalid table name" });
+    }
+
     const [rows] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 100"
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 100`
     );
     res.status(200).json(rows);
   } catch (err) {
@@ -28,12 +45,17 @@ router.get("/getAllData", async (req, res) => {
   }
 });
 
-// GET paginated rows for kabomachinedatasmart200
+// GET paginated rows - accepts ?table= param
 router.get("/paginatedSmart200", async (req, res) => {
   let page = parseInt(req.query.page, 10) || 1;
   let limit = parseInt(req.query.limit, 10) || 10;
+  const table = req.query.table || "kabomachinedatasmart200";
   const from = req.query.from; // expected format: 'YYYY-MM-DD'
   const to = req.query.to;     // expected format: 'YYYY-MM-DD'
+
+  if (!allowedTables.has(table)) {
+    return res.status(400).json({ error: "Invalid table name" });
+  }
 
   if (page < 1) page = 1;
   if (limit < 1) limit = 10;
@@ -44,27 +66,27 @@ router.get("/paginatedSmart200", async (req, res) => {
 
   // Handle date filtering conditionally
   if (from && to) {
-    filters = "WHERE date_column BETWEEN ? AND ?";
+    filters = "WHERE created_at BETWEEN ? AND ?";
     params.push(from, to);
   } else if (from) {
-    filters = "WHERE date_column >= ?";
+    filters = "WHERE created_at >= ?";
     params.push(from);
   } else if (to) {
-    filters = "WHERE date_column <= ?";
+    filters = "WHERE created_at <= ?";
     params.push(to);
   }
 
   try {
     // Get total filtered count
     const [countRows] = await pool.query(
-      `SELECT COUNT(*) as total FROM kabomachinedatasmart200 ${filters}`,
+      `SELECT COUNT(*) as total FROM \`${table}\` ${filters}`,
       params
     );
     const total = countRows[0]?.total || 0;
 
     // Get filtered + paginated data
     const [rows] = await pool.query(
-      `SELECT * FROM kabomachinedatasmart200 ${filters} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM \`${table}\` ${filters} ORDER BY id DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
 
@@ -85,8 +107,13 @@ router.get("/paginatedSmart200", async (req, res) => {
 router.get("/paginatedSmart1200", async (req, res) => {
   let page = parseInt(req.query.page, 10) || 1;
   let limit = parseInt(req.query.limit, 10) || 10;
+  const table = req.query.table || "gtpl_122_s7_1200_01";
   const from = req.query.from; // expected format: 'YYYY-MM-DD'
   const to = req.query.to;     // expected format: 'YYYY-MM-DD'
+
+  if (!allowedTables.has(table)) {
+    return res.status(400).json({ error: "Invalid table name" });
+  }
 
   if (page < 1) page = 1;
   if (limit < 1) limit = 10;
@@ -97,27 +124,27 @@ router.get("/paginatedSmart1200", async (req, res) => {
 
   // Handle date filtering conditionally
   if (from && to) {
-    filters = "WHERE date_column BETWEEN ? AND ?";
+    filters = "WHERE created_at BETWEEN ? AND ?";
     params.push(from, to);
   } else if (from) {
-    filters = "WHERE date_column >= ?";
+    filters = "WHERE created_at >= ?";
     params.push(from);
   } else if (to) {
-    filters = "WHERE date_column <= ?";
+    filters = "WHERE created_at <= ?";
     params.push(to);
   }
 
   try {
     // Get total filtered count
     const [countRows] = await pool.query(
-      `SELECT COUNT(*) as total FROM gtpl_122_s7_1200_01 ${filters}`,
+      `SELECT COUNT(*) as total FROM \`${table}\` ${filters}`,
       params
     );
     const total = countRows[0]?.total || 0;
 
     // Get filtered + paginated data
     const [rows] = await pool.query(
-      `SELECT * FROM kabomachinedatasmart200 ${filters} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM \`${table}\` ${filters} ORDER BY id DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
 

@@ -1,6 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
+const { MACHINE_CONFIG } = require("../utils/machineConfig");
+
+const allowedTables = new Set(
+  Object.values(MACHINE_CONFIG).map((c) => c.table)
+);
 
 // Middleware to handle CORS for SSE
 const sseHeaders = (req, res, next) => {
@@ -20,6 +25,14 @@ router.options("/machine-data", (req, res) => {
 
 // Main SSE endpoint
 router.get("/machine-data", sseHeaders, async (req, res) => {
+  const table = req.query.table || "gtpl_122_s7_1200_01";
+
+  if (!allowedTables.has(table)) {
+    res.write(`event: error\ndata: ${JSON.stringify({ error: "Invalid table name" })}\n\n`);
+    res.end();
+    return;
+  }
+
   // Send initial connection message
   res.write("retry: 2000\n");
   res.write('event: connected\ndata: {"status": "connected"}\n\n');
@@ -29,7 +42,7 @@ router.get("/machine-data", sseHeaders, async (req, res) => {
   const checkForUpdates = async () => {
     try {
       const [rows] = await pool.query(
-        "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
+        `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
       );
       const latest = rows[0];
 
@@ -69,8 +82,14 @@ router.get("/machine-data", sseHeaders, async (req, res) => {
 // Regular API endpoint to get current data
 router.get("/current-data", async (req, res) => {
   try {
+    const table = req.query.table || "gtpl_122_s7_1200_01";
+
+    if (!allowedTables.has(table)) {
+      return res.status(400).json({ success: false, error: "Invalid table name" });
+    }
+
     const [rows] = await pool.query(
-      "SELECT * FROM gtpl_122_s7_1200_01 ORDER BY id DESC LIMIT 1"
+      `SELECT * FROM \`${table}\` ORDER BY id DESC LIMIT 1`
     );
     res.json({
       success: true,

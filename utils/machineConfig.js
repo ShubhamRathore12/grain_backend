@@ -526,6 +526,31 @@ const MACHINE_CONFIG = {
     tags: GTPL_139_TAGS,
     type: "S7-1200",
   },
+  "GTPL-131-GT-650T-S7-1200": {
+    table: "GTPL_131_GT_650T_S7_1200",
+    tags: GPL_124_TAGS,
+    type: "S7-1200",
+  },
+  "GTPL-136-GT-450AP-S7-1200": {
+    table: "GTPL_136_GT_450AP_S7_1200",
+    tags: GPL_132_TAGS,
+    type: "S7-1200",
+  },
+  "GTPL-142-GT-450AP-S7-1200": {
+    table: "GTPL_142_GT_450AP_S7_1200",
+    tags: GPL_132_TAGS,
+    type: "S7-1200",
+  },
+  "GTPL-123-GT-450AP-S7-1200": {
+    table: "GTPL_123_GT_450AP_S7_1200",
+    tags: GPL_132_TAGS,
+    type: "S7-1200",
+  },
+  "GTPL-143-GT-450AP-S7-1200": {
+    table: "GTPL_143_GT_450AP_S7_1200",
+    tags: GPL_132_TAGS,
+    type: "S7-1200",
+  },
 };
 
 // Optional alias mapping (e.g. "GPL-115" → "GTPL-115-gT-180E-S7-1200")

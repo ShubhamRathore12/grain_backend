@@ -34,6 +34,7 @@ const ALLOWED_TABLES = [
   "GTPL_142_GT_450AP_S7_1200",
   "GTPL_123_GT_450AP_S7_1200",
   "GTPL_143_GT_450AP_S7_1200",
+  'GTPL_145_GT_450T_S7_1200'
 ];
 
 // Preferred numeric order for Excel columns

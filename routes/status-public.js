@@ -2,33 +2,39 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../db");
 
-// Helper function similar to machineStatus.getMachineSpecificResponse
-function getMachineSpecificResponse(machineType, timestamp, currentTime, hasNewData) {
+// Helper function matching new-dashboard-app machineUtils logic
+function getMachineSpecificResponse(machineName, timestamp, currentTime, hasNewData) {
   const timestampDate = new Date(timestamp);
   const fiveMinutesAgo = new Date(currentTime.getTime() - 5 * 60 * 1000);
-  const oneMinuteAgo = new Date(currentTime.getTime() - 1 * 60 * 1000);
+  const oneMinuteAgo = new Date(currentTime.getTime() - 60 * 1000);
   const thirtySecondsAgo = new Date(currentTime.getTime() - 30 * 1000);
 
-  if (!hasNewData) {
-    return {
-      machineStatus: false,
-      coolingStatus: false,
-      internetStatus: false,
-      machineType: machineType.startsWith("GTPL") ? machineType : machineType,
-      priority: machineType.startsWith("GTPL") ? "high" : "medium",
-      responseType: machineType.startsWith("GTPL") ? "gtpl_machine" : "kabo_machine",
-      noNewData: true,
-    };
-  }
-
-  return {
+  const base = {
     machineStatus: timestampDate > fiveMinutesAgo,
     coolingStatus: timestampDate > oneMinuteAgo,
     internetStatus: timestampDate > thirtySecondsAgo,
-    machineType,
-    priority: machineType.startsWith("GTPL") ? "high" : "medium",
-    responseType: machineType.startsWith("GTPL") ? "gtpl_machine" : "kabo_machine",
-    noNewData: false,
+    noNewData: !hasNewData,
+  };
+
+  let priority = "low";
+  let responseType = "unknown_machine";
+
+  if (machineName.startsWith("GTPL_122")) {
+    priority = "high";
+    responseType = "gtpl_machine";
+  } else if (machineName.startsWith("GTPL_")) {
+    priority = "medium";
+    responseType = "gtpl_machine";
+  } else if (machineName === "KABO_200") {
+    priority = "medium";
+    responseType = "kabo_machine";
+  }
+
+  return {
+    ...base,
+    machineType: machineName,
+    priority,
+    responseType,
   };
 }
 
@@ -57,6 +63,7 @@ const MACHINE_TABLES = {
   GTPL_136_GT_450AP_S7_1200: "GTPL_136",
   GTPL_134_GT_450T_S7_1200: "GTPL_134",
   GTPL_135_GT_450T_S7_1200: "GTPL_135",
+  GTPL_145_GT_450T_S7_1200: "GTPL_145",
   GTPL_061_GT_450T_S7_1200: "GTPL_061",
   GTPL_139_GT300AP: "GTPL_139",
   GTPL_142_GT_450AP_S7_1200: "GTPL_142",
@@ -104,9 +111,9 @@ router.get("/", async (req, res) => {
         createdOnChanged: timeChanged,
       };
 
-      const rawCondFan = record.COND_FAN_ON ?? record.cond_fan_on;
+      const rawCondFan = record.COND_FAN_ON ?? record.cond_fan_on ?? record.Compressor_on_Q0_4;
       if (rawCondFan !== undefined) {
-        const condFanOn = rawCondFan === 1 || rawCondFan === true || rawCondFan === "tr" || rawCondFan === "true";
+        const condFanOn = rawCondFan === 1 || rawCondFan === true || rawCondFan === "tr" || rawCondFan === "true" || rawCondFan === "True";
         baseResponse.condFanOn = condFanOn;
       }
 

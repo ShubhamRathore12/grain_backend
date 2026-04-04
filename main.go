@@ -26,12 +26,12 @@ func main() {
 	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
 	envPath := filepath.Join(dir, ".env")
-	
+
 	// Try to load .env from executable directory
 	if err := godotenv.Load(envPath); err != nil {
 		log.Printf("⚠️  Could not load .env from %s: %v", envPath, err)
 		log.Println("Trying current directory...")
-		
+
 		// Fallback to current directory
 		if err := godotenv.Load(".env"); err != nil {
 			log.Println("No .env file found in current directory, using environment variables")
@@ -62,16 +62,56 @@ func main() {
 	// Apply middleware
 	r.Use(middleware.EnableCORS)
 
-	// Health check endpoint (public)
+	// =============================================
+	// PUBLIC ROUTES (no auth required)
+	// =============================================
+
+	// Health check
 	r.HandleFunc("/api/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
 
-	// Authentication routes (public)
+	// Authentication
 	r.HandleFunc("/api/login", handlers.HandleLogin).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/register", handlers.HandleRegister).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/auth/login", handlers.HandleLogin).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/auth/register", handlers.HandleRegister).Methods("POST", "OPTIONS")
 
-	// Protected API routes - all require valid auth_token cookie or Bearer token
+	// Machine status (used by dashboard/expo without auth)
+	r.HandleFunc("/api/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/machine/status", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+
+	// Table data (used by dashboard/expo without auth)
+	r.HandleFunc("/api/table", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+
+	// Reports (used by dashboard/expo without auth)
+	r.HandleFunc("/api/reports", handlers.HandleReports).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
+
+	// Fault logs (used by dashboard/expo without auth)
+	r.HandleFunc("/api/faultLogs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true, "data": [], "message": "Fault logs endpoint"}`))
+	}).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/faultLogs/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true, "data": [], "message": "Fault logs endpoint"}`))
+	}).Methods("GET", "OPTIONS")
+
+	// Active fault (used by dashboard/expo without auth)
+	r.HandleFunc("/api/getActiveFault", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
+	}).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/getActiveFault/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
+	}).Methods("GET", "OPTIONS")
+
+	// =============================================
+	// PROTECTED ROUTES (require auth cookie/token)
+	// =============================================
 	protected := r.PathPrefix("/api").Subrouter()
 	protected.Use(middleware.AuthenticateToken)
 
@@ -85,16 +125,15 @@ func main() {
 	protected.HandleFunc("/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
 	// Smart200 data routes
-	protected.HandleFunc("/api/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/api/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/api/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/api/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
 
 	// Get all data smart200 route
-	protected.HandleFunc("/api/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
-	// Machine status routes
-	protected.HandleFunc("/machine/status", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	// Machine test/diagnose (admin only)
 	protected.HandleFunc("/machine/test", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success": true, "message": "Test endpoint working"}`))
@@ -102,30 +141,6 @@ func main() {
 	protected.HandleFunc("/machine/diagnose", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success": true, "message": "Diagnose endpoint working"}`))
-	}).Methods("GET", "OPTIONS")
-
-	// Table route (public - no auth required for dashboard)
-	r.HandleFunc("/api/table", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-
-	// Reports routes
-	protected.HandleFunc("/api/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
-
-	// Status route (public - no auth required)
-	r.HandleFunc("/api/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
-
-	// Fault logs route
-	protected.HandleFunc("/api/faultLogs/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success": true, "data": [], "message": "Fault logs endpoint"}`))
-	}).Methods("GET", "OPTIONS")
-
-	// Get active fault route
-	protected.HandleFunc("/api/getActiveFault/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
 	}).Methods("GET", "OPTIONS")
 
 	// WebSocket endpoint

@@ -23,10 +23,10 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/app .
 
-# Copy .env file if exists
-COPY --from=builder /app/.env ./
+# Copy .env file if exists (use wildcard to avoid failure)
+COPY --from=builder /app/.env* ./
 
-# Copy public folder
+# Copy public folder if exists
 COPY --from=builder /app/public ./public/
 
 EXPOSE 3000

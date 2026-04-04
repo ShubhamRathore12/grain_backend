@@ -111,8 +111,9 @@ func main() {
 	protected.HandleFunc("/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
 
-	// Status route
-	protected.HandleFunc("/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	// Status route (public - no auth required)
+	r.HandleFunc("/api/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
 
 	// Fault logs route
 	protected.HandleFunc("/faultLogs/", func(w http.ResponseWriter, r *http.Request) {

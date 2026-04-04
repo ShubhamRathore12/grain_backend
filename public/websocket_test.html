@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - Grain Backend</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #4CAF50; color: white; }
+        .disconnected { background-color: #f44336; color: white; }
+        #messages { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: auto; }
+        .message { margin: 5px 0; padding: 5px; background: #f5f5f5; border-left: 3px solid #2196F3; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Grain Backend WebSocket Test</h1>
+    
+    <div id="status" class="disconnected">Disconnected</div>
+    
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect</button>
+    <button onclick="sendMessage()" id="sendBtn" disabled>Send Test Message</button>
+    
+    <h2>Messages:</h2>
+    <div id="messages"></div>
+    
+    <script>
+        let ws = null;
+        
+        function connect() {
+            const url = 'ws://localhost:8080/ws';
+            addMessage('Connecting to ' + url + '...');
+            
+            ws = new WebSocket(url);
+            
+            ws.onopen = function(event) {
+                document.getElementById('status').className = 'connected';
+                document.getElementById('status').textContent = 'Connected!';
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+                addMessage('✅ Connected successfully!');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    addMessage('📨 Received: ' + JSON.stringify(data, null, 2));
+                } catch (e) {
+                    addMessage('📨 Received: ' + event.data);
+                }
+            };
+            
+            ws.onclose = function(event) {
+                document.getElementById('status').className = 'disconnected';
+                document.getElementById('status').textContent = 'Disconnected';
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('sendBtn').disabled = true;
+                addMessage('❌ Disconnected: ' + (event.reason || 'Connection closed'));
+            };
+            
+            ws.onerror = function(error) {
+                addMessage('⚠️ WebSocket error occurred');
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                addMessage('Closing connection...');
+            }
+        }
+        
+        function sendMessage() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = { type: 'test', timestamp: new Date().toISOString() };
+                ws.send(JSON.stringify(message));
+                addMessage('📤 Sent: ' + JSON.stringify(message));
+            }
+        }
+        
+        function addMessage(text) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.textContent = new Date().toLocaleTimeString() + ' - ' + text;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // Auto-connect on page load
+        window.onload = () => {
+            setTimeout(connect, 1000);
+        };
+    </script>
+</body>
+</html>

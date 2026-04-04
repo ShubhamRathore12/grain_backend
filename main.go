@@ -85,13 +85,13 @@ func main() {
 	protected.HandleFunc("/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
 	// Smart200 data routes
-	protected.HandleFunc("/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/api/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/api/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/api/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/api/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
 
 	// Get all data smart200 route
-	protected.HandleFunc("/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/api/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
 	// Machine status routes
 	protected.HandleFunc("/machine/status", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
@@ -109,7 +109,7 @@ func main() {
 	r.HandleFunc("/api/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
 	// Reports routes
-	protected.HandleFunc("/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/api/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
 
 	// Status route (public - no auth required)
@@ -117,13 +117,13 @@ func main() {
 	r.HandleFunc("/api/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
 
 	// Fault logs route
-	protected.HandleFunc("/faultLogs/", func(w http.ResponseWriter, r *http.Request) {
+	protected.HandleFunc("/api/faultLogs/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success": true, "data": [], "message": "Fault logs endpoint"}`))
 	}).Methods("GET", "OPTIONS")
 
 	// Get active fault route
-	protected.HandleFunc("/getActiveFault/", func(w http.ResponseWriter, r *http.Request) {
+	protected.HandleFunc("/api/getActiveFault/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
 	}).Methods("GET", "OPTIONS")

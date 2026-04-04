@@ -104,8 +104,9 @@ func main() {
 		w.Write([]byte(`{"success": true, "message": "Diagnose endpoint working"}`))
 	}).Methods("GET", "OPTIONS")
 
-	// Table route
-	protected.HandleFunc("/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	// Table route (public - no auth required for dashboard)
+	r.HandleFunc("/api/table", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
 	// Reports routes
 	protected.HandleFunc("/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")

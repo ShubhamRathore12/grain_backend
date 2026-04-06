@@ -115,9 +115,24 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			if tsVal, ok := record["created_at"]; ok {
-				if t, ok := tsVal.(time.Time); ok {
-					timestamp = t
+			// Check multiple possible timestamp column names
+			for _, tsCol := range []string{"created_at", "created_on", "CreatedAt", "CreatedOn", "timestamp", "Timestamp", "DateTime", "datetime", "date_time", "Date", "date", "time"} {
+				if tsVal, ok := record[tsCol]; ok {
+					switch v := tsVal.(type) {
+					case time.Time:
+						if v.After(timestamp) {
+							timestamp = v
+						}
+					case string:
+						for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02T15:04:05Z07:00"} {
+							if t, err := time.Parse(layout, v); err == nil {
+								if t.After(timestamp) {
+									timestamp = t
+								}
+								break
+							}
+						}
+					}
 				}
 			}
 

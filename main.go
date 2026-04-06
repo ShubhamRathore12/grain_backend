@@ -79,6 +79,7 @@ func main() {
 	r.HandleFunc("/api/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/machine/status", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/machine/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
 
 	// Table data (used by dashboard/expo without auth)
 	r.HandleFunc("/api/table", handlers.HandleGetAllData).Methods("GET", "OPTIONS")

@@ -94,6 +94,24 @@ func main() {
 	r.HandleFunc("/api/export", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/export/", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
 
+	// Excel XLSX export
+	r.HandleFunc("/api/export/excel", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/export/excel/", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
+
+	// All data routes (used by dashboard without auth)
+	r.HandleFunc("/api/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/alldata/alldata/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+
+	// Smart200/1200 data routes (used by dashboard without auth)
+	r.HandleFunc("/api/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+
+	// Get all data smart200 route
+	r.HandleFunc("/api/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+
 	// Fault logs (used by dashboard/expo without auth)
 	r.HandleFunc("/api/faultLogs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -120,23 +138,11 @@ func main() {
 	protected := r.PathPrefix("/api").Subrouter()
 	protected.Use(middleware.AuthenticateToken)
 
-	// Data routes
+	// Data routes (protected)
 	protected.HandleFunc("/data/update", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"message": "Data updated successfully"}`))
 	}).Methods("POST", "OPTIONS")
-
-	// All data routes
-	protected.HandleFunc("/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-
-	// Smart200 data routes
-	protected.HandleFunc("/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
-
-	// Get all data smart200 route
-	protected.HandleFunc("/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
 	// Machine test/diagnose (admin only)
 	protected.HandleFunc("/machine/test", func(w http.ResponseWriter, r *http.Request) {

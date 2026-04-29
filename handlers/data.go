@@ -94,8 +94,15 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 		limit = 10
 	}
 
+	// Support both "from"/"to" and "fromDate"/"toDate" query params
 	fromDate := r.URL.Query().Get("from")
+	if fromDate == "" {
+		fromDate = r.URL.Query().Get("fromDate")
+	}
 	toDate := r.URL.Query().Get("to")
+	if toDate == "" {
+		toDate = r.URL.Query().Get("toDate")
+	}
 	table := r.URL.Query().Get("table")
 	if table == "" {
 		table = "kabomachinedatasmart200"

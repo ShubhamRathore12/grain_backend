@@ -235,17 +235,20 @@ func HandleReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Detect timestamp column for this table
+	tsCol := getTimestampColumn(table)
+
 	// Build WHERE clause
 	whereClause := ""
 	params := []interface{}{}
 	if fromDate != "" || toDate != "" {
 		conditions := []string{}
 		if fromDate != "" {
-			conditions = append(conditions, "created_at >= ?")
+			conditions = append(conditions, "`"+tsCol+"` >= ?")
 			params = append(params, fromDate)
 		}
 		if toDate != "" {
-			conditions = append(conditions, "created_at <= ?")
+			conditions = append(conditions, "`"+tsCol+"` <= ?")
 			params = append(params, toDate)
 		}
 		whereClause = "WHERE " + joinStrings(conditions, " AND ")
@@ -284,12 +287,12 @@ func HandleReports(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data": data,
-		"page": page,
-		"limit": limit,
-		"total": total,
-		"table": table,
-		"timestampColumn": "created_at",
+		"data":            data,
+		"page":            page,
+		"limit":           limit,
+		"total":           total,
+		"table":           table,
+		"timestampColumn": tsCol,
 		"dateFilter": map[string]interface{}{
 			"fromDate": fromDate,
 			"toDate":   toDate,

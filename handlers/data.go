@@ -116,17 +116,20 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * limit
 
+	// Detect timestamp column for this table
+	tsCol := getTimestampColumn(table)
+
 	// Build WHERE clause
 	whereClause := ""
 	params := []interface{}{}
 	if fromDate != "" || toDate != "" {
 		conditions := []string{}
 		if fromDate != "" {
-			conditions = append(conditions, "created_at >= ?")
+			conditions = append(conditions, "`"+tsCol+"` >= ?")
 			params = append(params, fromDate)
 		}
 		if toDate != "" {
-			conditions = append(conditions, "created_at <= ?")
+			conditions = append(conditions, "`"+tsCol+"` <= ?")
 			params = append(params, toDate)
 		}
 		if len(conditions) > 0 {
@@ -227,6 +230,23 @@ func joinStrings(strs []string, sep string) string {
 		result += s
 	}
 	return result
+}
+
+// getTimestampColumn detects the timestamp column name for a given table
+func getTimestampColumn(table string) string {
+	query := "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME IN ('created_at', 'created_on', 'CreatedAt', 'CreatedOn', 'timestamp', 'Timestamp', 'DateTime', 'datetime', 'date_time', 'Date', 'date', 'time') LIMIT 1"
+	rows, err := database.SafeQuery(query, table)
+	if err != nil {
+		return "created_at"
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var col string
+		rows.Scan(&col)
+		return col
+	}
+	return "created_at"
 }
 
 func scanRowsToMap(rows *sql.Rows) []map[string]interface{} {

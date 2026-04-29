@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"grain_backend/database"
 )
 
 // HandleExportCSV exports table data as a CSV file (Excel-compatible)
+// Skips duplicate rows where data columns (excluding id/timestamp) are identical
 // Query params: table, fromDate, toDate (defaults to last 3 days)
 func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -40,8 +42,11 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		toDate = time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 	}
 
-	// Build query with date filter
-	query := "SELECT * FROM `" + table + "` WHERE created_at >= ? AND created_at <= ? ORDER BY id DESC"
+	// Detect timestamp column for this table
+	tsCol := getTimestampColumn(table)
+
+	// Build query with date filter - order ASC so we keep first occurrence and skip later duplicates
+	query := "SELECT * FROM `" + table + "` WHERE `" + tsCol + "` >= ? AND `" + tsCol + "` <= ? ORDER BY id ASC"
 	rows, err := database.SafeQuery(query, fromDate, toDate)
 	if err != nil {
 		log.Printf("Export error: %v", err)
@@ -57,6 +62,22 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Identify which columns are "data" columns (skip id and timestamp columns for dedup)
+	skipCols := map[string]bool{
+		"id": true, "ID": true, "Id": true,
+		"created_at": true, "created_on": true, "CreatedAt": true, "CreatedOn": true,
+		"updated_at": true, "updated_on": true, "UpdatedAt": true, "UpdatedOn": true,
+		"timestamp": true, "Timestamp": true, "DateTime": true, "datetime": true,
+		"date_time": true, "Date": true, "date": true, "time": true,
+	}
+
+	dataColIndices := []int{}
+	for i, col := range columns {
+		if !skipCols[col] {
+			dataColIndices = append(dataColIndices, i)
+		}
+	}
+
 	// Set headers for CSV download
 	filename := fmt.Sprintf("%s_%s_to_%s.csv", table, fromDate, toDate)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -70,7 +91,9 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	// Write header row
 	writer.Write(columns)
 
-	// Write data rows
+	// Track previous row's data columns to skip duplicates
+	prevDataKey := ""
+
 	values := make([]interface{}, len(columns))
 	valuePtrs := make([]interface{}, len(columns))
 	for i := range values {
@@ -92,6 +115,20 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 				row[i] = fmt.Sprintf("%v", v)
 			}
 		}
+
+		// Build a key from data columns only (exclude id/timestamp)
+		dataVals := make([]string, len(dataColIndices))
+		for j, idx := range dataColIndices {
+			dataVals[j] = row[idx]
+		}
+		dataKey := strings.Join(dataVals, "|")
+
+		// Skip if data is identical to previous row
+		if dataKey == prevDataKey {
+			continue
+		}
+		prevDataKey = dataKey
+
 		writer.Write(row)
 	}
 }

@@ -11,7 +11,10 @@ import (
 	"grain_backend/database"
 )
 
+const exportBatchSize = 5000
+
 // HandleExportCSV exports table data as a CSV file (Excel-compatible)
+// Fetches data in batches to avoid OOM on low-memory servers
 // Skips duplicate rows where data columns (excluding id/timestamp) are identical
 // Query params: table, fromDate, toDate (defaults to last 3 days)
 func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
@@ -45,24 +48,23 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	// Detect timestamp column for this table
 	tsCol := getTimestampColumn(table)
 
-	// Build query with date filter - order ASC so we keep first occurrence and skip later duplicates
-	query := "SELECT * FROM `" + table + "` WHERE `" + tsCol + "` >= ? AND `" + tsCol + "` <= ? ORDER BY id ASC"
-	rows, err := database.SafeQuery(query, fromDate, toDate)
+	// First get columns from a single row
+	colQuery := "SELECT * FROM `" + table + "` LIMIT 1"
+	colRows, err := database.SafeQuery(colQuery)
 	if err != nil {
-		log.Printf("Export error: %v", err)
+		log.Printf("Export columns error: %v", err)
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-
-	columns, err := rows.Columns()
+	columns, err := colRows.Columns()
+	colRows.Close()
 	if err != nil {
 		log.Printf("Export columns error: %v", err)
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
 		return
 	}
 
-	// Identify which columns are "data" columns (skip id and timestamp columns for dedup)
+	// Identify data columns for dedup (skip id and timestamp columns)
 	skipCols := map[string]bool{
 		"id": true, "ID": true, "Id": true,
 		"created_at": true, "created_on": true, "CreatedAt": true, "CreatedOn": true,
@@ -86,49 +88,75 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte{0xEF, 0xBB, 0xBF})
 
 	writer := csv.NewWriter(w)
-	defer writer.Flush()
 
 	// Write header row
 	writer.Write(columns)
+	writer.Flush()
 
 	// Track previous row's data columns to skip duplicates
 	prevDataKey := ""
+	offset := 0
 
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
+	// Fetch in batches to avoid loading everything into memory
+	for {
+		query := fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id ASC LIMIT %d OFFSET %d",
+			table, tsCol, tsCol, exportBatchSize, offset)
 
-	for rows.Next() {
-		rows.Scan(valuePtrs...)
-		row := make([]string, len(columns))
-		for i, val := range values {
-			switch v := val.(type) {
-			case []byte:
-				row[i] = string(v)
-			case time.Time:
-				row[i] = v.Format("2006-01-02 15:04:05")
-			case nil:
-				row[i] = ""
-			default:
-				row[i] = fmt.Sprintf("%v", v)
+		rows, err := database.SafeQuery(query, fromDate, toDate)
+		if err != nil {
+			log.Printf("Export batch error at offset %d: %v", offset, err)
+			break
+		}
+
+		rowCount := 0
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		for rows.Next() {
+			rowCount++
+			rows.Scan(valuePtrs...)
+			row := make([]string, len(columns))
+			for i, val := range values {
+				switch v := val.(type) {
+				case []byte:
+					row[i] = string(v)
+				case time.Time:
+					row[i] = v.Format("2006-01-02 15:04:05")
+				case nil:
+					row[i] = ""
+				default:
+					row[i] = fmt.Sprintf("%v", v)
+				}
 			}
+
+			// Build a key from data columns only (exclude id/timestamp)
+			dataVals := make([]string, len(dataColIndices))
+			for j, idx := range dataColIndices {
+				dataVals[j] = row[idx]
+			}
+			dataKey := strings.Join(dataVals, "|")
+
+			// Skip if data is identical to previous row
+			if dataKey == prevDataKey {
+				continue
+			}
+			prevDataKey = dataKey
+
+			writer.Write(row)
+		}
+		rows.Close()
+
+		// Flush each batch to the HTTP response immediately (frees memory)
+		writer.Flush()
+
+		// If we got fewer rows than batch size, we're done
+		if rowCount < exportBatchSize {
+			break
 		}
 
-		// Build a key from data columns only (exclude id/timestamp)
-		dataVals := make([]string, len(dataColIndices))
-		for j, idx := range dataColIndices {
-			dataVals[j] = row[idx]
-		}
-		dataKey := strings.Join(dataVals, "|")
-
-		// Skip if data is identical to previous row
-		if dataKey == prevDataKey {
-			continue
-		}
-		prevDataKey = dataKey
-
-		writer.Write(row)
+		offset += exportBatchSize
 	}
 }

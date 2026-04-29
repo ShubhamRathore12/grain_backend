@@ -90,6 +90,10 @@ func main() {
 	r.HandleFunc("/api/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
 
+	// Excel/CSV export (downloads last 3 days by default)
+	r.HandleFunc("/api/export", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/export/", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
+
 	// Fault logs (used by dashboard/expo without auth)
 	r.HandleFunc("/api/faultLogs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

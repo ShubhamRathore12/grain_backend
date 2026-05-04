@@ -202,17 +202,71 @@ func isTModel(table string) bool {
 	return tModelMachines[prefix]
 }
 
-// filterColumns returns only the columns that exist in the allowed list
+// promoteTimestampCols reorders columns so id, created_at, created_on appear first
+// (in that order, only those present), preserving original order for the rest.
+// Both the column names and their corresponding source indices are reordered together.
+func promoteTimestampCols(cols []string, indices []int) ([]string, []int) {
+	priority := []string{"id", "created_at", "created_on"}
+	prioritySet := map[string]bool{"id": true, "created_at": true, "created_on": true}
+
+	pos := map[string]int{}
+	for i, c := range cols {
+		pos[c] = i
+	}
+
+	outCols := []string{}
+	outIdx := []int{}
+	for _, p := range priority {
+		if i, ok := pos[p]; ok {
+			outCols = append(outCols, cols[i])
+			outIdx = append(outIdx, indices[i])
+		}
+	}
+	for i, c := range cols {
+		if !prioritySet[c] {
+			outCols = append(outCols, c)
+			outIdx = append(outIdx, indices[i])
+		}
+	}
+	return outCols, outIdx
+}
+
+// filterColumns returns only the columns that exist in the allowed list.
+// id, created_at, created_on are always promoted to the front (in that order)
+// so the export reads chronologically; remaining columns keep DB order.
 func filterColumns(allColumns []string, allowed []string) ([]string, []int) {
 	allowedSet := map[string]bool{}
 	for _, c := range allowed {
 		allowedSet[c] = true
 	}
 
+	priority := []string{"id", "created_at", "created_on"}
+	prioritySet := map[string]bool{}
+	for _, c := range priority {
+		prioritySet[c] = true
+	}
+
+	colIndex := map[string]int{}
+	for i, col := range allColumns {
+		colIndex[col] = i
+	}
+
 	filtered := []string{}
 	indices := []int{}
-	for i, col := range allColumns {
+
+	// Front: id, created_at, created_on (only those that exist & are allowed).
+	for _, col := range priority {
 		if allowedSet[col] {
+			if i, ok := colIndex[col]; ok {
+				filtered = append(filtered, col)
+				indices = append(indices, i)
+			}
+		}
+	}
+
+	// Rest: original DB order, skipping ones already added.
+	for i, col := range allColumns {
+		if allowedSet[col] && !prioritySet[col] {
 			filtered = append(filtered, col)
 			indices = append(indices, i)
 		}
@@ -321,6 +375,9 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 			exportIndices[i] = i
 		}
 	}
+
+	// Always show id, created_at, created_on first.
+	exportColumns, exportIndices = promoteTimestampCols(exportColumns, exportIndices)
 
 	// Identify timestamp and dedup columns in export set
 	tsColNames := map[string]bool{

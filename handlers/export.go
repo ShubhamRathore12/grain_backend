@@ -224,6 +224,9 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Always show id, created_at, created_on first.
+	columns, colSourceIndices = promoteTimestampCols(columns, colSourceIndices)
+
 	// Identify timestamp column indices and data columns for dedup
 	tsColNames := map[string]bool{
 		"created_at": true, "created_on": true, "CreatedAt": true, "CreatedOn": true,

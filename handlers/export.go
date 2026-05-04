@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -13,9 +15,113 @@ import (
 
 const exportBatchSize = 5000
 
+// machineTimezones maps table name prefixes to their timezone locations
+// Based on machine installation locations
+var machineTimezones = map[string]*time.Location{
+	// Germany (GMT+2)
+	"GTPL_108": mustLoadLocation("Europe/Berlin"),
+	"GTPL_109": mustLoadLocation("Europe/Berlin"),
+	"GTPL_110": mustLoadLocation("Europe/Berlin"),
+	"GTPL_111": mustLoadLocation("Europe/Berlin"),
+	"GTPL_112": mustLoadLocation("Europe/Berlin"),
+	"GTPL_113": mustLoadLocation("Europe/Berlin"),
+	"GTPL_115": mustLoadLocation("Europe/Berlin"),
+	"GTPL_116": mustLoadLocation("Europe/Berlin"),
+	"GTPL_117": mustLoadLocation("Europe/Berlin"),
+	"GTPL_119": mustLoadLocation("Europe/Berlin"),
+	"GTPL_120": mustLoadLocation("Europe/Berlin"),
+	"GTPL_030": mustLoadLocation("Europe/Berlin"),
+
+	// Türkiye (GMT+3)
+	"GTPL_061": mustLoadLocation("Europe/Istanbul"),
+
+	// India (GMT+5:30)
+	"GTPL_118": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_121": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_122": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_123": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_132": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_133": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_134": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_135": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_139": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_142": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_143": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_144": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_145": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_148": mustLoadLocation("Asia/Kolkata"),
+
+	// Sri Lanka (UTC+5:30 same as IST)
+	"GTPL_136": mustLoadLocation("Asia/Colombo"),
+
+	// Indonesia (GMT+7)
+	"GTPL_124": mustLoadLocation("Asia/Jakarta"),
+
+	// Thailand (GMT+7)
+	"GTPL_137": mustLoadLocation("Asia/Bangkok"),
+	"GTPL_138": mustLoadLocation("Asia/Bangkok"),
+
+	// Default for kabo
+	"kabo": mustLoadLocation("Asia/Kolkata"),
+}
+
+func mustLoadLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		// Fallback to fixed offset if timezone DB not available
+		switch name {
+		case "Europe/Berlin":
+			return time.FixedZone("CET", 2*60*60)
+		case "Europe/Istanbul":
+			return time.FixedZone("TRT", 3*60*60)
+		case "Asia/Kolkata":
+			return time.FixedZone("IST", 5*60*60+30*60)
+		case "Asia/Colombo":
+			return time.FixedZone("SLT", 5*60*60+30*60)
+		case "Asia/Jakarta":
+			return time.FixedZone("WIB", 7*60*60)
+		case "Asia/Bangkok":
+			return time.FixedZone("ICT", 7*60*60)
+		default:
+			return time.UTC
+		}
+	}
+	return loc
+}
+
+// getTimezoneForTable returns the timezone for a given table name
+func getTimezoneForTable(table string) *time.Location {
+	// Extract machine prefix like "GTPL_145" from table name like "GTPL_145_GT_450T_S7_1200"
+	parts := strings.Split(table, "_")
+	if len(parts) >= 2 {
+		prefix := parts[0] + "_" + parts[1]
+		if loc, ok := machineTimezones[prefix]; ok {
+			return loc
+		}
+	}
+
+	// Check lowercase prefix (e.g., "gtpl_122_s7_1200_01")
+	lower := strings.ToLower(table)
+	if strings.HasPrefix(lower, "gtpl_") && len(parts) >= 2 {
+		prefix := "GTPL_" + parts[1]
+		if loc, ok := machineTimezones[prefix]; ok {
+			return loc
+		}
+	}
+
+	// Check kabo
+	if strings.HasPrefix(lower, "kabo") {
+		return machineTimezones["kabo"]
+	}
+
+	return time.UTC
+}
+
 // HandleExportCSV exports table data as a CSV file (Excel-compatible)
 // Fetches data in batches to avoid OOM on low-memory servers
 // Skips duplicate rows where data columns (excluding id/timestamp) are identical
+// Converts timestamps to the machine's local timezone
+// Also emails the CSV to configured receivers in the background
 // Query params: table, fromDate, toDate (defaults to last 3 days)
 func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -48,6 +154,9 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	// Detect timestamp column for this table
 	tsCol := getTimestampColumn(table)
 
+	// Get the timezone for this machine
+	machineTZ := getTimezoneForTable(table)
+
 	// First get columns from a single row
 	colQuery := "SELECT * FROM `" + table + "` LIMIT 1"
 	colRows, err := database.SafeQuery(colQuery)
@@ -56,7 +165,7 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
 		return
 	}
-	columns, err := colRows.Columns()
+	allColumns, err := colRows.Columns()
 	colRows.Close()
 	if err != nil {
 		log.Printf("Export columns error: %v", err)
@@ -64,17 +173,78 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Identify data columns for dedup (skip id and timestamp columns)
-	skipCols := map[string]bool{
-		"id": true, "ID": true, "Id": true,
+	// Determine which columns to export (filter for AP models)
+	columns := allColumns
+	colSourceIndices := make([]int, len(allColumns)) // maps export col index -> original col index
+	for i := range allColumns {
+		colSourceIndices[i] = i
+	}
+	if isAPModel(table) {
+		filtered, indices := filterColumns(allColumns, apModelColumns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	} else if isGTPL124(table) {
+		filtered, indices := filterColumns(allColumns, gtpl124Columns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	} else if isThailandT(table) {
+		filtered, indices := filterColumns(allColumns, thailandTColumns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	} else if isGTPL118(table) {
+		filtered, indices := filterColumns(allColumns, gtpl118Columns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	} else if isEModel(table) {
+		filtered, indices := filterColumns(allColumns, eModelColumns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	} else if isEPModel(table) {
+		filtered, indices := filterColumns(allColumns, epModelColumns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	} else if isTModel(table) {
+		filtered, indices := filterColumns(allColumns, tModelColumns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
+	}
+
+	// Identify timestamp column indices and data columns for dedup
+	tsColNames := map[string]bool{
 		"created_at": true, "created_on": true, "CreatedAt": true, "CreatedOn": true,
 		"updated_at": true, "updated_on": true, "UpdatedAt": true, "UpdatedOn": true,
 		"timestamp": true, "Timestamp": true, "DateTime": true, "datetime": true,
 		"date_time": true, "Date": true, "date": true, "time": true,
 	}
 
+	skipCols := map[string]bool{
+		"id": true, "ID": true, "Id": true,
+	}
+	for k, v := range tsColNames {
+		skipCols[k] = v
+	}
+
+	// Track which column indices are timestamps (for timezone conversion)
+	tsColIndices := map[int]bool{}
 	dataColIndices := []int{}
 	for i, col := range columns {
+		if tsColNames[col] {
+			tsColIndices[i] = true
+		}
 		if !skipCols[col] {
 			dataColIndices = append(dataColIndices, i)
 		}
@@ -84,17 +254,35 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	filename := fmt.Sprintf("%s_%s_to_%s.csv", table, fromDate, toDate)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	// BOM for Excel to recognize UTF-8
-	w.Write([]byte{0xEF, 0xBB, 0xBF})
 
-	writer := csv.NewWriter(w)
+	// BOM for Excel to recognize UTF-8
+	bom := []byte{0xEF, 0xBB, 0xBF}
+
+	// Write to both HTTP response and a buffer (for email attachment)
+	var emailBuf bytes.Buffer
+	emailBuf.Write(bom)
+	w.Write(bom)
+
+	// Create CSV writers for both response and email buffer
+	multiWriter := io.MultiWriter(w, &emailBuf)
+	writer := csv.NewWriter(multiWriter)
 
 	// Write header row
 	writer.Write(columns)
 	writer.Flush()
 
+	// Find the timestamp column index in the source (allColumns) for 2-min spacing
+	tsSourceIdx := -1
+	for i, col := range allColumns {
+		if col == tsCol {
+			tsSourceIdx = i
+			break
+		}
+	}
+
 	// Track previous row's data columns to skip duplicates
 	prevDataKey := ""
+	var prevTimestamp time.Time
 	offset := 0
 
 	// Fetch in batches to avoid loading everything into memory
@@ -109,8 +297,8 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		}
 
 		rowCount := 0
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]interface{}, len(allColumns))
+		valuePtrs := make([]interface{}, len(allColumns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -118,17 +306,46 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			rowCount++
 			rows.Scan(valuePtrs...)
+
+			// Extract only the export columns
 			row := make([]string, len(columns))
-			for i, val := range values {
+			for ei, ai := range colSourceIndices {
+				val := values[ai]
 				switch v := val.(type) {
 				case []byte:
-					row[i] = string(v)
+					if tsColIndices[ei] {
+						if t, err := time.Parse("2006-01-02 15:04:05", string(v)); err == nil {
+							row[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
+						} else {
+							row[ei] = string(v)
+						}
+					} else {
+						row[ei] = string(v)
+					}
 				case time.Time:
-					row[i] = v.Format("2006-01-02 15:04:05")
+					row[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
 				case nil:
-					row[i] = ""
+					row[ei] = ""
 				default:
-					row[i] = fmt.Sprintf("%v", v)
+					row[ei] = fmt.Sprintf("%v", v)
+				}
+			}
+
+			// Extract row timestamp for 2-minute spacing
+			if tsSourceIdx >= 0 {
+				var rowTime time.Time
+				val := values[tsSourceIdx]
+				switch v := val.(type) {
+				case time.Time:
+					rowTime = v
+				case []byte:
+					rowTime, _ = time.Parse("2006-01-02 15:04:05", string(v))
+				}
+				if !prevTimestamp.IsZero() && rowTime.Sub(prevTimestamp) < 2*time.Minute {
+					continue
+				}
+				if !rowTime.IsZero() {
+					prevTimestamp = rowTime
 				}
 			}
 
@@ -149,7 +366,7 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.Close()
 
-		// Flush each batch to the HTTP response immediately (frees memory)
+		// Flush each batch immediately (frees memory)
 		writer.Flush()
 
 		// If we got fewer rows than batch size, we're done
@@ -159,4 +376,9 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 		offset += exportBatchSize
 	}
+
+	// Send email with CSV attachment in background (don't block the response)
+	csvCopy := make([]byte, emailBuf.Len())
+	copy(csvCopy, emailBuf.Bytes())
+	go sendCSVEmail(csvCopy, filename, table)
 }

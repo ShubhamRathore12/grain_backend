@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"grain_backend/database"
@@ -103,6 +104,7 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 	if toDate == "" {
 		toDate = r.URL.Query().Get("toDate")
 	}
+	fromDate, toDate = normalizeDateRange(fromDate, toDate)
 	table := r.URL.Query().Get("table")
 	if table == "" {
 		table = "kabomachinedatasmart200"
@@ -119,10 +121,11 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 	// Detect timestamp column for this table
 	tsCol := getTimestampColumn(table)
 
-	// Build WHERE clause
+	// Build WHERE clause. Skip date filter when no timestamp column exists
+	// to avoid "Unknown column" SQL errors on tables without one.
 	whereClause := ""
 	params := []interface{}{}
-	if fromDate != "" || toDate != "" {
+	if tsCol != "" && (fromDate != "" || toDate != "") {
 		conditions := []string{}
 		if fromDate != "" {
 			conditions = append(conditions, "`"+tsCol+"` >= ?")
@@ -232,21 +235,60 @@ func joinStrings(strs []string, sep string) string {
 	return result
 }
 
-// getTimestampColumn detects the timestamp column name for a given table
+// tsColumnCache caches detected timestamp column per table to avoid repeated INFORMATION_SCHEMA queries.
+var tsColumnCache sync.Map
+
+// getTimestampColumn detects the timestamp column name for a given table.
+// Filters by current DATABASE() schema and orders results so preferred names win deterministically.
+// Result is cached per-table.
 func getTimestampColumn(table string) string {
-	query := "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME IN ('created_at', 'created_on', 'CreatedAt', 'CreatedOn', 'timestamp', 'Timestamp', 'DateTime', 'datetime', 'date_time', 'Date', 'date', 'time') LIMIT 1"
+	if cached, ok := tsColumnCache.Load(table); ok {
+		return cached.(string)
+	}
+
+	// FIELD() returns position in the list (1 = highest priority); columns not in the list get 0.
+	// Filtering by TABLE_SCHEMA = DATABASE() avoids cross-DB collisions.
+	query := `SELECT COLUMN_NAME
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = ?
+		  AND COLUMN_NAME IN ('created_at','created_on','CreatedAt','CreatedOn','timestamp','Timestamp','DateTime','datetime','date_time','Date','date','time')
+		ORDER BY FIELD(COLUMN_NAME,'created_at','created_on','CreatedAt','CreatedOn','timestamp','Timestamp','DateTime','datetime','date_time','Date','date','time')
+		LIMIT 1`
 	rows, err := database.SafeQuery(query, table)
 	if err != nil {
+		log.Printf("getTimestampColumn error for %s: %v", table, err)
+		// Don't cache the default — let the next call retry detection.
 		return "created_at"
 	}
 	defer rows.Close()
 
+	col := ""
 	if rows.Next() {
-		var col string
 		rows.Scan(&col)
-		return col
 	}
-	return "created_at"
+	if col == "" {
+		// No matching timestamp column exists in this table. Caller must handle this.
+		log.Printf("getTimestampColumn: no timestamp column found for %s", table)
+		tsColumnCache.Store(table, "")
+		return ""
+	}
+	tsColumnCache.Store(table, col)
+	return col
+}
+
+// normalizeDateRange expands date-only inputs to full-day boundaries.
+// "2025-01-03" as toDate becomes "2025-01-03 23:59:59" so the entire day is included.
+// "2025-01-01" as fromDate becomes "2025-01-01 00:00:00" for symmetry.
+// Inputs that already include a time component are returned unchanged.
+func normalizeDateRange(fromDate, toDate string) (string, string) {
+	if fromDate != "" && len(fromDate) == 10 {
+		fromDate = fromDate + " 00:00:00"
+	}
+	if toDate != "" && len(toDate) == 10 {
+		toDate = toDate + " 23:59:59"
+	}
+	return fromDate, toDate
 }
 
 func scanRowsToMap(rows *sql.Rows) []map[string]interface{} {

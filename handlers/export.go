@@ -150,6 +150,7 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	if toDate == "" {
 		toDate = time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 	}
+	fromDate, toDate = normalizeDateRange(fromDate, toDate)
 
 	// Detect timestamp column for this table
 	tsCol := getTimestampColumn(table)
@@ -285,12 +286,21 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	var prevTimestamp time.Time
 	offset := 0
 
-	// Fetch in batches to avoid loading everything into memory
+	// Fetch in batches to avoid loading everything into memory.
+	// If the table has no recognized timestamp column, fall back to id-only paging.
 	for {
-		query := fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id ASC LIMIT %d OFFSET %d",
-			table, tsCol, tsCol, exportBatchSize, offset)
+		var query string
+		var queryArgs []interface{}
+		if tsCol == "" {
+			query = fmt.Sprintf("SELECT * FROM `%s` ORDER BY id ASC LIMIT %d OFFSET %d",
+				table, exportBatchSize, offset)
+		} else {
+			query = fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id ASC LIMIT %d OFFSET %d",
+				table, tsCol, tsCol, exportBatchSize, offset)
+			queryArgs = []interface{}{fromDate, toDate}
+		}
 
-		rows, err := database.SafeQuery(query, fromDate, toDate)
+		rows, err := database.SafeQuery(query, queryArgs...)
 		if err != nil {
 			log.Printf("Export batch error at offset %d: %v", offset, err)
 			break

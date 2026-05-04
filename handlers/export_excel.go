@@ -260,6 +260,7 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 	if toDate == "" {
 		toDate = time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 	}
+	fromDate, toDate = normalizeDateRange(fromDate, toDate)
 
 	// Optional row limit (default 50000)
 	maxRows := 50000
@@ -447,10 +448,18 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 			batchLimit = maxRows - totalFetched
 		}
 
-		query := fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id ASC LIMIT %d OFFSET %d",
-			table, tsCol, tsCol, batchLimit, offset)
+		var query string
+		var queryArgs []interface{}
+		if tsCol == "" {
+			query = fmt.Sprintf("SELECT * FROM `%s` ORDER BY id ASC LIMIT %d OFFSET %d",
+				table, batchLimit, offset)
+		} else {
+			query = fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id ASC LIMIT %d OFFSET %d",
+				table, tsCol, tsCol, batchLimit, offset)
+			queryArgs = []interface{}{fromDate, toDate}
+		}
 
-		rows, err := database.SafeQuery(query, fromDate, toDate)
+		rows, err := database.SafeQuery(query, queryArgs...)
 		if err != nil {
 			log.Printf("Excel export batch error at offset %d: %v", offset, err)
 			break

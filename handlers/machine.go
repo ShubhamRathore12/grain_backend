@@ -217,6 +217,7 @@ func HandleReports(w http.ResponseWriter, r *http.Request) {
 
 	fromDate := r.URL.Query().Get("fromDate")
 	toDate := r.URL.Query().Get("toDate")
+	fromDate, toDate = normalizeDateRange(fromDate, toDate)
 	pageStr := r.URL.Query().Get("page")
 	
 	page := 1
@@ -238,10 +239,15 @@ func HandleReports(w http.ResponseWriter, r *http.Request) {
 	// Detect timestamp column for this table
 	tsCol := getTimestampColumn(table)
 
-	// Build WHERE clause
+	// Expand date-only inputs ("2026-05-04") to full-day boundaries so a single
+	// date matches the whole day instead of only midnight.
+	fromDate, toDate = normalizeDateRange(fromDate, toDate)
+
+	// Build WHERE clause. If the table has no timestamp column, ignore date filters
+	// rather than producing an "Unknown column" SQL error.
 	whereClause := ""
 	params := []interface{}{}
-	if fromDate != "" || toDate != "" {
+	if tsCol != "" && (fromDate != "" || toDate != "") {
 		conditions := []string{}
 		if fromDate != "" {
 			conditions = append(conditions, "`"+tsCol+"` >= ?")

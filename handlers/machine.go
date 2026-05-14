@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,6 +131,27 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 				case int64:
 					id = int(v)
 					idFound = true
+				case int32:
+					id = int(v)
+					idFound = true
+				case uint64:
+					id = int(v)
+					idFound = true
+				case float64:
+					id = int(v)
+					idFound = true
+				case string:
+					// MySQL driver returns numeric columns as []byte, which the
+					// row scan above converts to string. Parse it back.
+					if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+						id = n
+						idFound = true
+					}
+				case []byte:
+					if n, err := strconv.Atoi(strings.TrimSpace(string(v))); err == nil {
+						id = n
+						idFound = true
+					}
 				}
 			}
 

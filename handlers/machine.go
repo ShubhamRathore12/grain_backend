@@ -5,9 +5,23 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"grain_backend/database"
+)
+
+// machineLastState holds the last observed row identity for a machine table so
+// consecutive /status calls can tell whether fresh data is actually arriving.
+type machineLastState struct {
+	ID          int
+	Timestamp   time.Time
+	LastChanged time.Time // wall-clock time when ID last changed
+}
+
+var (
+	machineStateCache = make(map[string]machineLastState)
+	machineStateMu    sync.Mutex
 )
 
 // MachineStatus represents the status of a machine
@@ -106,13 +120,16 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			// Extract ID and timestamp
 			var id int
 			var timestamp time.Time
-			
+			idFound := false
+
 			if idVal, ok := record["id"]; ok {
 				switch v := idVal.(type) {
 				case int:
 					id = v
+					idFound = true
 				case int64:
 					id = int(v)
+					idFound = true
 				}
 			}
 
@@ -137,9 +154,48 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			status := getMachineSpecificResponse(machineName, timestamp, currentTime, true)
+			// Compare against the previously observed row for this table.
+			// "New data" means a new id (and/or created_at) has actually
+			// arrived since the last poll. If the id never changes the
+			// machine is treated as offline regardless of the timestamp.
+			fiveMinutesAgo := currentTime.Add(-5 * time.Minute)
+
+			machineStateMu.Lock()
+			prev, seen := machineStateCache[tableName]
+			idChanged := idFound && (!seen || id != prev.ID)
+			createdAtChanged := !seen || !timestamp.Equal(prev.Timestamp)
+
+			lastChanged := prev.LastChanged
+			if idChanged {
+				lastChanged = currentTime
+			}
+			if idFound {
+				machineStateCache[tableName] = machineLastState{
+					ID:          id,
+					Timestamp:   timestamp,
+					LastChanged: lastChanged,
+				}
+			}
+			machineStateMu.Unlock()
+
+			// Fresh data = the id changed at some point within the freshness
+			// window. Requires the id column to be present at all.
+			hasNewData := idFound && !lastChanged.IsZero() && lastChanged.After(fiveMinutesAgo)
+
+			status := getMachineSpecificResponse(machineName, timestamp, currentTime, hasNewData)
 			status.RecordID = id
 			status.LastUpdate = timestamp.Format(time.RFC3339)
+			status.MachineName = machineName
+			status.TableName = tableName
+			status.HasNewData = hasNewData
+			status.IDChanged = idChanged
+			status.CreatedAtChanged = createdAtChanged
+
+			machines = append(machines, status)
+		} else {
+			// No rows at all for this machine — no id is coming, so it is
+			// reported as offline rather than being silently omitted.
+			status := getMachineSpecificResponse(machineName, time.Time{}, currentTime, false)
 			status.MachineName = machineName
 			status.TableName = tableName
 
@@ -176,10 +232,12 @@ func getMachineSpecificResponse(machineName string, timestamp, currentTime time.
 		responseType = "gtpl_machine"
 	}
 
+	// A machine is only considered online when fresh data (a new id) is
+	// actually arriving. Without new data every status is forced to false.
 	return MachineStatus{
-		MachineStatus:  timestamp.After(fiveMinutesAgo),
-		CoolingStatus:  timestamp.After(oneMinuteAgo),
-		InternetStatus: timestamp.After(thirtySecondsAgo),
+		MachineStatus:  hasNewData && timestamp.After(fiveMinutesAgo),
+		CoolingStatus:  hasNewData && timestamp.After(oneMinuteAgo),
+		InternetStatus: hasNewData && timestamp.After(thirtySecondsAgo),
 		MachineType:    machineName,
 		Priority:       priority,
 		ResponseType:   responseType,

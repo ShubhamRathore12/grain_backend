@@ -178,14 +178,16 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 
 			// Compare against the previously observed row for this table.
 			// "New data" means a new id (and/or created_at) has actually
-			// arrived since the last poll. If the id never changes the
-			// machine is treated as offline regardless of the timestamp.
-			fiveMinutesAgo := currentTime.Add(-5 * time.Minute)
-
+			// arrived since the last poll. If the id is the same as the
+			// previous poll the machine is treated as offline regardless
+			// of the timestamp.
 			machineStateMu.Lock()
 			prev, seen := machineStateCache[tableName]
-			idChanged := idFound && (!seen || id != prev.ID)
-			createdAtChanged := !seen || !timestamp.Equal(prev.Timestamp)
+			// On the very first observation there is nothing to compare
+			// against, so we cannot claim anything "changed" — treat it as
+			// unchanged (offline) until a later poll proves otherwise.
+			idChanged := seen && idFound && id != prev.ID
+			createdAtChanged := seen && idFound && !timestamp.Equal(prev.Timestamp)
 
 			lastChanged := prev.LastChanged
 			if idChanged {
@@ -200,9 +202,9 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 			machineStateMu.Unlock()
 
-			// Fresh data = the id changed at some point within the freshness
-			// window. Requires the id column to be present at all.
-			hasNewData := idFound && !lastChanged.IsZero() && lastChanged.After(fiveMinutesAgo)
+			// Fresh data = the id (or created_at) actually changed since
+			// the previous poll. Same id as last poll => offline.
+			hasNewData := idChanged || createdAtChanged
 
 			status := getMachineSpecificResponse(machineName, timestamp, currentTime, hasNewData)
 			status.RecordID = id

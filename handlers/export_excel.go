@@ -190,6 +190,36 @@ func getMachinePrefix(table string) string {
 	return ""
 }
 
+// Indian machine prefixes - times should not be converted, keep as-is from database
+var indianMachines = map[string]bool{
+	"GTPL_118": true,
+	"GTPL_121": true,
+	"GTPL_122": true,
+	"GTPL_123": true,
+	"GTPL_132": true,
+	"GTPL_133": true,
+	"GTPL_134": true,
+	"GTPL_135": true,
+	"GTPL_139": true,
+	"GTPL_142": true,
+	"GTPL_143": true,
+	"GTPL_144": true,
+	"GTPL_145": true,
+	"GTPL_148": true,
+	"kabo": true,
+}
+
+// isIndianMachine checks if a table belongs to an Indian machine
+func isIndianMachine(table string) bool {
+	prefix := getMachinePrefix(table)
+	if indianMachines[prefix] {
+		return true
+	}
+	// Also check for kabo tables
+	lower := strings.ToLower(table)
+	return strings.HasPrefix(lower, "kabo")
+}
+
 // isAPModel checks if a table belongs to an AP model machine
 func isAPModel(table string) bool {
 	prefix := getMachinePrefix(table)
@@ -534,6 +564,8 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(valuePtrs...)
 
 			// Extract only the export columns
+			// For Indian machines, keep times as-is from database (no timezone conversion)
+			isIndian := isIndianMachine(table)
 			exportVals := make([]string, len(exportIndices))
 			for ei, ai := range exportIndices {
 				val := values[ai]
@@ -541,7 +573,13 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 				case []byte:
 					if tsExportIndices[ei] {
 						if t, err := time.Parse("2006-01-02 15:04:05", string(v)); err == nil {
-							exportVals[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
+							if isIndian {
+								// Indian machines: keep time as-is from database
+								exportVals[ei] = t.Format("2006-01-02 15:04:05")
+							} else {
+								// Other machines: convert to machine's local timezone
+								exportVals[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
+							}
 						} else {
 							exportVals[ei] = string(v)
 						}
@@ -549,7 +587,13 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 						exportVals[ei] = string(v)
 					}
 				case time.Time:
-					exportVals[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
+					if isIndian {
+						// Indian machines: keep time as-is from database
+						exportVals[ei] = v.Format("2006-01-02 15:04:05")
+					} else {
+						// Other machines: convert to machine's local timezone
+						exportVals[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
+					}
 				case nil:
 					exportVals[ei] = ""
 				default:

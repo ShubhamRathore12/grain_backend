@@ -321,6 +321,8 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(valuePtrs...)
 
 			// Extract only the export columns
+			// For Indian machines, keep times as-is from database (no timezone conversion)
+			isIndian := isIndianMachine(table)
 			row := make([]string, len(columns))
 			for ei, ai := range colSourceIndices {
 				val := values[ai]
@@ -328,7 +330,13 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 				case []byte:
 					if tsColIndices[ei] {
 						if t, err := time.Parse("2006-01-02 15:04:05", string(v)); err == nil {
-							row[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
+							if isIndian {
+								// Indian machines: keep time as-is from database
+								row[ei] = t.Format("2006-01-02 15:04:05")
+							} else {
+								// Other machines: convert to machine's local timezone
+								row[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
+							}
 						} else {
 							row[ei] = string(v)
 						}
@@ -336,7 +344,13 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 						row[ei] = string(v)
 					}
 				case time.Time:
-					row[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
+					if isIndian {
+						// Indian machines: keep time as-is from database
+						row[ei] = v.Format("2006-01-02 15:04:05")
+					} else {
+						// Other machines: convert to machine's local timezone
+						row[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
+					}
 				case nil:
 					row[ei] = ""
 				default:

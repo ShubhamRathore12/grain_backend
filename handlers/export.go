@@ -295,10 +295,10 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		var query string
 		var queryArgs []interface{}
 		if tsCol == "" {
-			query = fmt.Sprintf("SELECT * FROM `%s` ORDER BY id ASC LIMIT %d OFFSET %d",
+			query = fmt.Sprintf("SELECT * FROM `%s` ORDER BY id DESC LIMIT %d OFFSET %d",
 				table, exportBatchSize, offset)
 		} else {
-			query = fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id ASC LIMIT %d OFFSET %d",
+			query = fmt.Sprintf("SELECT * FROM `%s` WHERE `%s` >= ? AND `%s` <= ? ORDER BY id DESC LIMIT %d OFFSET %d",
 				table, tsCol, tsCol, exportBatchSize, offset)
 			queryArgs = []interface{}{fromDate, toDate}
 		}

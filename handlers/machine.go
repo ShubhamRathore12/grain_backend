@@ -70,6 +70,8 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 		"GTPL_117_GT_320E_S7_1200":  "GTPL_117",
 		"GTPL_121_GT1000T":          "GTPL_121",
 		"GTPL_124_GT_450T_S7_1200":  "GTPL_124",
+		"GTPL_081_GT_650T_S7_1200":  "GTPL_081",
+		"GTPL_105_GT_650T_S7_1200":  "GTPL_105",
 		"GTPL_133_GT_650T_S7_1200":  "GTPL_133",
 		"GTPL_131_GT_650T_S7_1200":  "GTPL_131",
 		"GTPL_132_GT300AP":          "GTPL_132",

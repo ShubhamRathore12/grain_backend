@@ -36,6 +36,8 @@ var machineTimezones = map[string]*time.Location{
 	"GTPL_061": mustLoadLocation("Europe/Istanbul"),
 
 	// India (GMT+5:30)
+	"GTPL_081": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_105": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_118": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_121": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_122": mustLoadLocation("Asia/Kolkata"),

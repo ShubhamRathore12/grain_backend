@@ -66,6 +66,8 @@ var apModelMachines = map[string]bool{
 
 // T model machine prefixes
 var tModelMachines = map[string]bool{
+	"GTPL_081": true,
+	"GTPL_105": true,
 	"GTPL_121": true,
 	"GTPL_122": true,
 	"GTPL_133": true,
@@ -192,6 +194,8 @@ func getMachinePrefix(table string) string {
 
 // Indian machine prefixes - times should not be converted, keep as-is from database
 var indianMachines = map[string]bool{
+	"GTPL_081": true,
+	"GTPL_105": true,
 	"GTPL_118": true,
 	"GTPL_121": true,
 	"GTPL_122": true,

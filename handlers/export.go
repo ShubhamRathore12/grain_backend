@@ -370,8 +370,11 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 				case []byte:
 					rowTime, _ = time.Parse("2006-01-02 15:04:05", string(v))
 				}
-				if !prevTimestamp.IsZero() && rowTime.Sub(prevTimestamp) < 2*time.Minute {
-					continue
+				if !prevTimestamp.IsZero() && !rowTime.IsZero() {
+					diff := prevTimestamp.Sub(rowTime) // DESC order: prev is newer
+					if diff < 2*time.Minute {
+						continue
+					}
 				}
 				if !rowTime.IsZero() {
 					prevTimestamp = rowTime

@@ -218,6 +218,12 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 			columns = filtered
 			colSourceIndices = indices
 		}
+	} else if isT650Model(table) {
+		filtered, indices := filterColumns(allColumns, t650ModelColumns)
+		if len(filtered) > 0 {
+			columns = filtered
+			colSourceIndices = indices
+		}
 	} else if isTModel(table) {
 		filtered, indices := filterColumns(allColumns, tModelColumns)
 		if len(filtered) > 0 {

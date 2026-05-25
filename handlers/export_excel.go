@@ -37,7 +37,7 @@ var apModelColumns = []string{
 }
 
 // Columns to export for T model machines (gT-1000T, gT-650T, gT-450T)
-// GTPL-121, 122, 133, 134, 135, 145
+// GTPL-121, 122, 134, 135, 145
 var tModelColumns = []string{
 	"id", "created_at", "created_on",
 	"LP_value", "HP_value",
@@ -53,6 +53,32 @@ var tModelColumns = []string{
 	"FAULT_CODE",
 }
 
+// Columns for GTPL-081, 105, 133 (gT-650T India) — uses AHT_vale_speed spelling
+var t650ModelColumns = []string{
+	"id", "created_at", "created_on",
+	"LP_value", "HP_value",
+	"T2_temp_mean", "T1_temp_mean", "T0_temp_mean",
+	"Blower_speed", "Hot_valve_speed", "AHT_vale_speed",
+	"T0_set_point", "Delta_T_set_point",
+	"HP_set_point", "LP_set_point",
+	"Auto_mode", "Manual_mode", "Aeration_mode",
+	"CR_valve_25_percent_ON_Q0_2",
+	"CR_valve_50_percent_ON_Q0_3",
+	"CR_valve_75_percent_ON_Q2_2",
+	"CR_valve_100_percent_ON_Q2_7",
+	"FAULT_CODE",
+}
+
+var t650ModelMachines = map[string]bool{
+	"GTPL_081": true,
+	"GTPL_105": true,
+	"GTPL_133": true,
+}
+
+func isT650Model(table string) bool {
+	return t650ModelMachines[getMachinePrefix(table)]
+}
+
 // AP model machine prefixes
 var apModelMachines = map[string]bool{
 	"GTPL_123": true,
@@ -66,11 +92,8 @@ var apModelMachines = map[string]bool{
 
 // T model machine prefixes
 var tModelMachines = map[string]bool{
-	"GTPL_081": true,
-	"GTPL_105": true,
 	"GTPL_121": true,
 	"GTPL_122": true,
-	"GTPL_133": true,
 	"GTPL_134": true,
 	"GTPL_135": true,
 	"GTPL_145": true,
@@ -398,6 +421,8 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 		exportColumns, exportIndices = filterColumns(allColumns, eModelColumns)
 	} else if isEPModel(table) {
 		exportColumns, exportIndices = filterColumns(allColumns, epModelColumns)
+	} else if isT650Model(table) {
+		exportColumns, exportIndices = filterColumns(allColumns, t650ModelColumns)
 	} else if isTModel(table) {
 		exportColumns, exportIndices = filterColumns(allColumns, tModelColumns)
 	}

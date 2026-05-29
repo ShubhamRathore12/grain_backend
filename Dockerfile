@@ -29,6 +29,6 @@ COPY --from=builder /app/.env* ./
 # Copy public folder if exists
 COPY --from=builder /app/public ./public/
 
-EXPOSE 3000
+EXPOSE 8080
 
 CMD ["./app"]

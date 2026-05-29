@@ -15,7 +15,8 @@ $env:DB_PASSWORD = "T-Cyj;f5g1y6"
 $env:DB_NAME = "myshaa_kabu"
 $env:JWT_SECRET = "21321esaendjnasjdasjdnjasbndjqwbeijn2jebjbjbjnjnj"
 $env:PORT = "8080"
-$env:CORS_ORIGIN = "*"
+$env:CORS_ORIGIN = "https://new-plc-software-5xyc.vercel.app"
+$env:CORS_ALLOWED_ORIGINS = "https://new-plc-software-5xyc.vercel.app,http://localhost:3000,http://localhost:3001"
 
 Write-Host "✅ Environment variables configured" -ForegroundColor Green
 Write-Host ""

@@ -258,12 +258,20 @@ func getMachineSpecificResponse(machineName string, timestamp, currentTime time.
 		responseType = "gtpl_machine"
 	}
 
-	// A machine is only considered online when fresh data (a new id) is
-	// actually arriving. Without new data every status is forced to false.
+	// A machine is considered online if it is actively updating (hasNewData = true)
+	// OR if the record is recent (timestamp within 5 minutes).
+	// The machine goes offline only if BOTH conditions are false:
+	// 1. No new records are arriving (hasNewData = false), AND
+	// 2. The existing record is stale (timestamp older than 5 minutes)
+	
+	machineOnline := hasNewData || (!timestamp.IsZero() && timestamp.After(fiveMinutesAgo))
+	coolingOnline := hasNewData || (!timestamp.IsZero() && timestamp.After(oneMinuteAgo))
+	internetOnline := hasNewData || (!timestamp.IsZero() && timestamp.After(thirtySecondsAgo))
+	
 	return MachineStatus{
-		MachineStatus:  hasNewData && timestamp.After(fiveMinutesAgo),
-		CoolingStatus:  hasNewData && timestamp.After(oneMinuteAgo),
-		InternetStatus: hasNewData && timestamp.After(thirtySecondsAgo),
+		MachineStatus:  machineOnline,
+		CoolingStatus:  coolingOnline,
+		InternetStatus: internetOnline,
 		MachineType:    machineName,
 		Priority:       priority,
 		ResponseType:   responseType,

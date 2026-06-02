@@ -214,6 +214,8 @@ func getAllowedTables() []string {
 		"GTPL_148_GT_450T_S7_1200",
 		"GTPL_144_GT_300AP_S7_1200",
 		"GTPL_118_GT_60T_S7_1200",
+		"GTPL_104_GT_650T_S7_1200",
+		"GTPL_068_GT_650T_S7_1200",
 	}
 }
 

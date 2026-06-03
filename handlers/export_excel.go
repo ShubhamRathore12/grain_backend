@@ -165,6 +165,7 @@ var eModelColumns = []string{
 	"T1_set_point", "TH_T1_set_point",
 	"HP_set_point", "LP_set_point",
 	"Auto_mode", "Manual_mode", "Aeration_mode",
+	"FAULT_CODE",
 }
 
 var eModelMachines = map[string]bool{
@@ -600,8 +601,66 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 			// For Indian machines, keep times as-is from database (no timezone conversion)
 			isIndian := isIndianMachine(table)
 			exportVals := make([]string, len(exportIndices))
+			
+			// Create a map of all values for fault detection
+			allValuesMap := make(map[string]interface{})
+			for i, col := range allColumns {
+				allValuesMap[col] = values[i]
+			}
+			
+			// Detect fault conditions
+			detectedFaultCode := detectFaultConditions(table, allValuesMap)
+			
 			for ei, ai := range exportIndices {
 				val := values[ai]
+				colName := exportColumns[ei]
+				
+				// Check if this is the FAULT_CODE or Fault_Code1 column
+				// If fault code is empty and we detected faults, populate it
+				if (colName == "FAULT_CODE" || colName == "Fault_Code1") && detectedFaultCode != "" {
+					// Check if current value is empty
+					currentVal := ""
+					switch v := val.(type) {
+					case []byte:
+						currentVal = string(v)
+					case string:
+						currentVal = v
+					case nil:
+						currentVal = ""
+					default:
+						currentVal = fmt.Sprintf("%v", v)
+					}
+					
+					// If current fault code is empty, use detected fault
+					// If current fault code exists, append detected fault
+					if currentVal == "" {
+						exportVals[ei] = detectedFaultCode
+					} else {
+						// Combine existing and detected faults (avoid duplicates)
+						existingFaults := strings.Split(currentVal, ",")
+						detectedFaults := strings.Split(detectedFaultCode, ",")
+						combinedFaults := make(map[string]bool)
+						
+						for _, f := range existingFaults {
+							combinedFaults[strings.TrimSpace(f)] = true
+						}
+						for _, f := range detectedFaults {
+							combinedFaults[strings.TrimSpace(f)] = true
+						}
+						
+						// Convert back to comma-separated string
+						var result []string
+						for f := range combinedFaults {
+							if f != "" {
+								result = append(result, f)
+							}
+						}
+						exportVals[ei] = strings.Join(result, ",")
+					}
+					continue
+				}
+				
+				// Regular value processing
 				switch v := val.(type) {
 				case []byte:
 					if tsExportIndices[ei] {

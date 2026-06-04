@@ -191,7 +191,6 @@ var epModelColumns = []string{
 	"DELTA_SET", "HP", "LP", "HP_SET_POINT",
 	"AERATION_MODE_WITH_HEAT", "AERATION_MODE_WITHOUT_HEAT",
 	"AUTO_EN", "MANUAL_EN",
-	"Fault_Code1",
 }
 
 var epModelMachines = map[string]bool{

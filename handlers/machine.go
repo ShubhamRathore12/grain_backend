@@ -181,20 +181,18 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Compare against the previously observed row for this table.
-			// "New data" means a new id (and/or created_at) has actually
-			// arrived since the last poll. If the id is the same as the
-			// previous poll the machine is treated as offline regardless
-			// of the timestamp.
+			// "New data" means BOTH created_at (or created_on) timestamp has changed
+			// AND the ID has changed. Both conditions must be true for new data.
 			machineStateMu.Lock()
 			prev, seen := machineStateCache[tableName]
 			// On the very first observation there is nothing to compare
 			// against, so we cannot claim anything "changed" — treat it as
-			// unchanged (offline) until a later poll proves otherwise.
+			// unchanged (no new data) until a later poll proves otherwise.
 			idChanged := seen && idFound && id != prev.ID
 			createdAtChanged := seen && idFound && !timestamp.Equal(prev.Timestamp)
 
 			lastChanged := prev.LastChanged
-			if idChanged {
+			if idChanged && createdAtChanged {
 				lastChanged = currentTime
 			}
 			if idFound {
@@ -206,9 +204,15 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 			machineStateMu.Unlock()
 
-			// Fresh data = the id (or created_at) actually changed since
-			// the previous poll. Same id as last poll => offline.
-			hasNewData := idChanged || createdAtChanged
+			// Fresh data = BOTH created_at/created_on timestamp AND ID changed.
+			// If only one changed or neither changed => no new data.
+			hasNewData := idChanged && createdAtChanged
+
+			// Debug logging for GTPL_081 and GTPL_105
+			if machineName == "GTPL_081" || machineName == "GTPL_105" {
+				log.Printf("[DEBUG %s] ID: %d (prev: %d, changed: %v), Timestamp: %v (prev: %v, changed: %v), hasNewData: %v", 
+					machineName, id, prev.ID, idChanged, timestamp, prev.Timestamp, createdAtChanged, hasNewData)
+			}
 
 			status := getMachineSpecificResponse(machineName, timestamp, currentTime, hasNewData)
 			status.RecordID = id
@@ -242,10 +246,6 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func getMachineSpecificResponse(machineName string, timestamp, currentTime time.Time, hasNewData bool) MachineStatus {
-	fiveMinutesAgo := currentTime.Add(-5 * time.Minute)
-	oneMinuteAgo := currentTime.Add(-1 * time.Minute)
-	thirtySecondsAgo := currentTime.Add(-30 * time.Second)
-
 	priority := "low"
 	responseType := "unknown_machine"
 
@@ -260,15 +260,12 @@ func getMachineSpecificResponse(machineName string, timestamp, currentTime time.
 		responseType = "gtpl_machine"
 	}
 
-	// A machine is considered online if it is actively updating (hasNewData = true)
-	// OR if the record is recent (timestamp within 5 minutes).
-	// The machine goes offline only if BOTH conditions are false:
-	// 1. No new records are arriving (hasNewData = false), AND
-	// 2. The existing record is stale (timestamp older than 5 minutes)
+	// A machine is considered online ONLY if it is actively updating (hasNewData = true).
+	// If hasNewData is false, the machine is offline regardless of timestamp age.
 	
-	machineOnline := hasNewData || (!timestamp.IsZero() && timestamp.After(fiveMinutesAgo))
-	coolingOnline := hasNewData || (!timestamp.IsZero() && timestamp.After(oneMinuteAgo))
-	internetOnline := hasNewData || (!timestamp.IsZero() && timestamp.After(thirtySecondsAgo))
+	machineOnline := hasNewData
+	coolingOnline := hasNewData
+	internetOnline := hasNewData
 	
 	return MachineStatus{
 		MachineStatus:  machineOnline,

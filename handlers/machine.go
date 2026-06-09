@@ -181,18 +181,16 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Compare against the previously observed row for this table.
-			// "New data" means BOTH created_at (or created_on) timestamp has changed
-			// AND the ID has changed. Both conditions must be true for new data.
+			// "New data" means the ID has changed. That's the only indicator.
 			machineStateMu.Lock()
 			prev, seen := machineStateCache[tableName]
 			// On the very first observation there is nothing to compare
 			// against, so we cannot claim anything "changed" — treat it as
 			// unchanged (no new data) until a later poll proves otherwise.
 			idChanged := seen && idFound && id != prev.ID
-			createdAtChanged := seen && idFound && !timestamp.Equal(prev.Timestamp)
 
 			lastChanged := prev.LastChanged
-			if idChanged && createdAtChanged {
+			if idChanged {
 				lastChanged = currentTime
 			}
 			if idFound {
@@ -204,14 +202,14 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 			machineStateMu.Unlock()
 
-			// Fresh data = BOTH created_at/created_on timestamp AND ID changed.
-			// If only one changed or neither changed => no new data.
-			hasNewData := idChanged && createdAtChanged
+			// Fresh data = ID changed. That's the only condition.
+			// If ID is the same => no new data, regardless of timestamp.
+			hasNewData := idChanged
 
 			// Debug logging for GTPL_081 and GTPL_105
 			if machineName == "GTPL_081" || machineName == "GTPL_105" {
-				log.Printf("[DEBUG %s] ID: %d (prev: %d, changed: %v), Timestamp: %v (prev: %v, changed: %v), hasNewData: %v", 
-					machineName, id, prev.ID, idChanged, timestamp, prev.Timestamp, createdAtChanged, hasNewData)
+				log.Printf("[DEBUG %s] ID: %d (prev: %d, changed: %v), hasNewData: %v", 
+					machineName, id, prev.ID, idChanged, hasNewData)
 			}
 
 			status := getMachineSpecificResponse(machineName, timestamp, currentTime, hasNewData)
@@ -221,7 +219,6 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			status.TableName = tableName
 			status.HasNewData = hasNewData
 			status.IDChanged = idChanged
-			status.CreatedAtChanged = createdAtChanged
 
 			machines = append(machines, status)
 		} else {

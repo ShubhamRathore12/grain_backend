@@ -97,7 +97,13 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 		query := "SELECT * FROM `" + tableName + "` ORDER BY id DESC LIMIT 1"
 		rows, err := database.SafeQuery(query)
 		if err != nil {
-			continue // Skip tables that error
+			log.Printf("⚠️ Database error for table %s (%s): %v", tableName, machineName, err)
+			// Still add machine to response, but mark as offline
+			status := getMachineSpecificResponse(machineName, time.Time{}, currentTime, false)
+			status.MachineName = machineName
+			status.TableName = tableName
+			machines = append(machines, status)
+			continue
 		}
 
 		columns, _ := rows.Columns()

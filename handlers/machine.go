@@ -187,29 +187,45 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Compare against the previously observed row for this table.
-			// "New data" means the ID has changed from the previous poll.
+			// Check if this is actually new/fresh data by looking at:
+			// 1. Has the ID changed? (new record inserted)
+			// 2. Is the timestamp recent? (data still flowing)
 			machineStateMu.Lock()
 			prev, seen := machineStateCache[tableName]
-			// Only consider data as "new" if we've seen this machine before
-			// and the ID has actually changed. First observation = no new data.
+			
+			// ID changed means new data arrived
 			idChanged := seen && idFound && id != prev.ID
-
-			lastChanged := prev.LastChanged
-			if idChanged {
-				lastChanged = currentTime
+			
+			// If we haven't seen this machine before, don't consider it "new data"
+			// On first observation, just cache it
+			hasNewData := false
+			if seen {
+				// After first observation, data is "new" if:
+				// 1. ID changed, OR
+				// 2. Timestamp is more recent than 1 minute ago (data is actively flowing)
+				oneMinuteAgo := currentTime.Add(-1 * time.Minute)
+				isRecentData := !timestamp.IsZero() && timestamp.After(oneMinuteAgo)
+				hasNewData = idChanged || isRecentData
 			}
-			if idFound {
+
+			if idChanged {
+				lastChanged := currentTime
 				machineStateCache[tableName] = machineLastState{
 					ID:          id,
 					Timestamp:   timestamp,
 					LastChanged: lastChanged,
 				}
+			} else if idFound {
+				// Keep the existing LastChanged but update the timestamp
+				machineStateCache[tableName] = machineLastState{
+					ID:          id,
+					Timestamp:   timestamp,
+					LastChanged: prev.LastChanged,
+				}
 			}
 			machineStateMu.Unlock()
 
-			// Fresh data = ID changed from previous poll.
-			// First observation = false (no data to compare against).
-			hasNewData := idChanged
+			// Fresh data = ID changed OR timestamp is recent (within 1 minute)
 
 			// Debug logging for GTPL_081 and GTPL_105
 			if machineName == "GTPL_081" || machineName == "GTPL_105" {

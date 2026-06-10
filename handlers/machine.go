@@ -181,12 +181,11 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Compare against the previously observed row for this table.
-			// "New data" means the ID has changed. That's the only indicator.
+			// "New data" means the ID has changed from the previous poll.
 			machineStateMu.Lock()
 			prev, seen := machineStateCache[tableName]
-			// On the very first observation there is nothing to compare
-			// against, so we cannot claim anything "changed" — treat it as
-			// unchanged (no new data) until a later poll proves otherwise.
+			// Only consider data as "new" if we've seen this machine before
+			// and the ID has actually changed. First observation = no new data.
 			idChanged := seen && idFound && id != prev.ID
 
 			lastChanged := prev.LastChanged
@@ -202,8 +201,8 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			}
 			machineStateMu.Unlock()
 
-			// Fresh data = ID changed. That's the only condition.
-			// If ID is the same => no new data, regardless of timestamp.
+			// Fresh data = ID changed from previous poll.
+			// First observation = false (no data to compare against).
 			hasNewData := idChanged
 
 			// Debug logging for GTPL_081 and GTPL_105

@@ -202,9 +202,9 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 			if seen {
 				// After first observation, data is "new" if:
 				// 1. ID changed, OR
-				// 2. Timestamp is more recent than 1 minute ago (data is actively flowing)
-				oneMinuteAgo := currentTime.Add(-1 * time.Minute)
-				isRecentData := !timestamp.IsZero() && timestamp.After(oneMinuteAgo)
+				// 2. Timestamp is more recent than 30 minutes ago (data is actively flowing)
+				thirtyMinutesAgo := currentTime.Add(-30 * time.Minute)
+				isRecentData := !timestamp.IsZero() && timestamp.After(thirtyMinutesAgo)
 				hasNewData = idChanged || isRecentData
 			}
 

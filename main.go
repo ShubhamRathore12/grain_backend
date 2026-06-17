@@ -59,9 +59,6 @@ func main() {
 	// Create router
 	r := mux.NewRouter()
 
-	// Apply middleware
-	r.Use(middleware.EnableCORS)
-
 	// =============================================
 	// PUBLIC ROUTES (no auth required)
 	// =============================================
@@ -157,10 +154,15 @@ func main() {
 	// WebSocket endpoint
 	r.HandleFunc("/ws", wsHub.HandleWebSocket)
 
+	// Wrap the entire router with CORS so headers are set on EVERY response,
+	// including 404/405 and preflight OPTIONS that never match a route.
+	// (gorilla/mux's r.Use() middleware does NOT run on unmatched routes.)
+	handler := middleware.EnableCORS(r)
+
 	// Create HTTP server
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      r,
+		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 5 * time.Minute,
 		IdleTimeout:  60 * time.Second,

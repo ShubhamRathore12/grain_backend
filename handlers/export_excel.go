@@ -73,6 +73,8 @@ var t650ModelMachines = map[string]bool{
 	"GTPL_081": true,
 	"GTPL_105": true,
 	"GTPL_133": true,
+	"GTPL_154": true,
+	"GTPL_155": true,
 	"GTPL_104": true,
 	"GTPL_068": true,
 }
@@ -229,6 +231,8 @@ var indianMachines = map[string]bool{
 	"GTPL_123": true,
 	"GTPL_132": true,
 	"GTPL_133": true,
+	"GTPL_154": true,
+	"GTPL_155": true,
 	"GTPL_134": true,
 	"GTPL_135": true,
 	"GTPL_139": true,

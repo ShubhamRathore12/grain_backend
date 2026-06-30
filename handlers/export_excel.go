@@ -209,6 +209,43 @@ func isEPModel(table string) bool {
 	return epModelMachines[getMachinePrefix(table)]
 }
 
+// heaterMachines are the only devices that physically have a heater
+// (reference: auto-screen HTR config). Heater columns are hidden for every
+// other machine, and for any S7-200 device. Note: auto-screen "GTPL-30"
+// maps to serial/table GTPL_114.
+var heaterMachines = map[string]bool{
+	"GTPL_114": true,
+	"GTPL_115": true,
+	"GTPL_116": true,
+	"GTPL_117": true,
+	"GTPL_119": true,
+	"GTPL_120": true,
+}
+
+// hasHeater reports whether this machine's report should keep heater columns.
+func hasHeater(table string) bool {
+	// No heater on any S7-200 device.
+	if strings.HasSuffix(strings.ToUpper(table), "200") {
+		return false
+	}
+	return heaterMachines[getMachinePrefix(table)]
+}
+
+// dropHeaterColumns removes any column whose name contains "heater"
+// (case-insensitive), keeping cols/indices in sync. Mirrors the frontend filter.
+func dropHeaterColumns(cols []string, indices []int) ([]string, []int) {
+	outCols := make([]string, 0, len(cols))
+	outIdx := make([]int, 0, len(indices))
+	for i, c := range cols {
+		if strings.Contains(strings.ToLower(c), "heater") {
+			continue
+		}
+		outCols = append(outCols, c)
+		outIdx = append(outIdx, indices[i])
+	}
+	return outCols, outIdx
+}
+
 // getMachinePrefix extracts prefix like "GTPL_145" from table name
 func getMachinePrefix(table string) string {
 	parts := strings.Split(table, "_")
@@ -446,6 +483,11 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 	// Always show id, created_at, created_on first.
 	exportColumns, exportIndices = promoteTimestampCols(exportColumns, exportIndices)
 
+	// Hide heater columns for machines without a heater (and any S7-200).
+	if !hasHeater(table) {
+		exportColumns, exportIndices = dropHeaterColumns(exportColumns, exportIndices)
+	}
+
 	// Identify timestamp and dedup columns in export set
 	tsColNames := map[string]bool{
 		"created_at": true, "created_on": true, "CreatedAt": true, "CreatedOn": true,
@@ -618,10 +660,9 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 				val := values[ai]
 				colName := exportColumns[ei]
 				
-				// Check if this is the FAULT_CODE or Fault_Code1 column
-				// If fault code is empty and we detected faults, populate it
-				if (colName == "FAULT_CODE" || colName == "Fault_Code1") && detectedFaultCode != "" {
-					// Check if current value is empty
+				// Fault column: merge any existing DB code with detected faults,
+				// dedupe (preserving order), then show every fault WITH its code.
+				if colName == "FAULT_CODE" || colName == "Fault_Code1" {
 					currentVal := ""
 					switch v := val.(type) {
 					case []byte:
@@ -633,33 +674,22 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 					default:
 						currentVal = fmt.Sprintf("%v", v)
 					}
-					
-					// If current fault code is empty, use detected fault
-					// If current fault code exists, append detected fault
-					if currentVal == "" {
-						exportVals[ei] = detectedFaultCode
-					} else {
-						// Combine existing and detected faults (avoid duplicates)
-						existingFaults := strings.Split(currentVal, ",")
-						detectedFaults := strings.Split(detectedFaultCode, ",")
-						combinedFaults := make(map[string]bool)
-						
-						for _, f := range existingFaults {
-							combinedFaults[strings.TrimSpace(f)] = true
-						}
-						for _, f := range detectedFaults {
-							combinedFaults[strings.TrimSpace(f)] = true
-						}
-						
-						// Convert back to comma-separated string
-						var result []string
-						for f := range combinedFaults {
-							if f != "" {
-								result = append(result, f)
+
+					seen := map[string]bool{}
+					ordered := []string{}
+					addCodes := func(s string) {
+						for _, f := range strings.Split(s, ",") {
+							f = strings.TrimSpace(f)
+							if f != "" && !seen[f] {
+								seen[f] = true
+								ordered = append(ordered, f)
 							}
 						}
-						exportVals[ei] = strings.Join(result, ",")
 					}
+					addCodes(currentVal)
+					addCodes(detectedFaultCode)
+
+					exportVals[ei] = formatFaultsWithCode(ordered)
 					continue
 				}
 				

@@ -12,6 +12,80 @@ type FaultCondition struct {
 	Severity    string // "critical", "warning", "info"
 }
 
+// faultDescriptions maps each fault code to a human-readable description.
+// Descriptions must NOT contain commas (codes are comma-separated upstream).
+var faultDescriptions = map[string]string{
+	// Generic / shared
+	"PRESSURE_LOW":  "Pressure below safe minimum",
+	"PRESSURE_HIGH": "Pressure above safe maximum",
+	"TEMP_HIGH":     "Temperature above safe maximum",
+	"TEMP_LOW":      "Temperature below safe minimum",
+	// AP model
+	"LP_LOW":         "Low-side pressure too low",
+	"LP_HIGH":        "Low-side pressure too high",
+	"HP_LOW":         "High-side pressure too low",
+	"HP_HIGH":        "High-side pressure too high",
+	"T1_HIGH":        "Cold air (T1) too high",
+	"T1_LOW":         "Cold air (T1) too low",
+	"T2_HIGH":        "Ambient (T2) too high",
+	"T2_LOW":         "Ambient (T2) too low",
+	"BLOWER_STALLED": "Blower stalled in manual mode",
+	// T model
+	"LP_LOW_T":      "Low-side pressure too low",
+	"LP_HIGH_T":     "Low-side pressure too high",
+	"HP_LOW_T":      "High-side pressure too low",
+	"HP_HIGH_T":     "High-side pressure too high",
+	"T0_HIGH":       "Air outlet (T0) too high",
+	"T0_LOW":        "Air outlet (T0) too low",
+	"HOT_VALVE_MIN": "Hot gas valve running below minimum",
+	"AHT_VALVE_MIN": "After-heat valve running below minimum",
+	// E model
+	"LP_LOW_E":   "Low-side pressure too low",
+	"LP_HIGH_E":  "Low-side pressure too high",
+	"HP_LOW_E":   "High-side pressure too low",
+	"HP_HIGH_E":  "High-side pressure too high",
+	"HEATER_LOW": "Heater running below minimum",
+	// EP model (German)
+	"LP_EP_LOW":   "Low-side pressure too low",
+	"LP_EP_HIGH":  "Low-side pressure too high",
+	"HP_EP_LOW":   "High-side pressure too low",
+	"HP_EP_HIGH":  "High-side pressure too high",
+	"OUTLET_HIGH": "Air outlet temperature too high",
+	"OUTLET_LOW":  "Air outlet temperature too low",
+	// GTPL-124
+	"LP_LOW_124":     "Low-side pressure too low",
+	"LP_HIGH_124":    "Low-side pressure too high",
+	"TEMP_ABOVE_SET": "Outlet temperature above set point",
+	"TEMP_BELOW_SET": "Outlet temperature below set point",
+	// Thailand T
+	"COND_FAN_LOW": "Condenser fan running below minimum",
+	// GTPL-118
+	"COND_FAN_118_LOW":  "Condenser fan running below minimum",
+	"AHT_VALVE_118_LOW": "After-heat valve running below minimum",
+	"T1_ABOVE_SET_118":  "Cold air (T1) above set point",
+	"T1_BELOW_SET_118":  "Cold air (T1) below set point",
+}
+
+// formatFaultsWithCode turns an ordered list of fault codes into a single
+// string showing each code with its description, e.g.
+// "LP_LOW: Low-side pressure too low; HP_HIGH: High-side pressure too high".
+// Unknown codes (e.g. raw codes from the DB FAULT_CODE column) pass through as-is.
+func formatFaultsWithCode(codes []string) string {
+	out := make([]string, 0, len(codes))
+	for _, c := range codes {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if d, ok := faultDescriptions[c]; ok {
+			out = append(out, c+": "+d)
+		} else {
+			out = append(out, c)
+		}
+	}
+	return strings.Join(out, "; ")
+}
+
 // detectFaultConditions analyzes data values and returns fault codes if any conditions are met
 func detectFaultConditions(table string, values map[string]interface{}) string {
 	// Check for specific machine types

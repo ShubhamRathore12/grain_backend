@@ -109,15 +109,19 @@ func main() {
 	r.HandleFunc("/api/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
 
-	// Fault logs (used by dashboard/expo without auth)
-	r.HandleFunc("/api/faultLogs", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success": true, "data": [], "message": "Fault logs endpoint"}`))
-	}).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/faultLogs/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success": true, "data": [], "message": "Fault logs endpoint"}`))
-	}).Methods("GET", "OPTIONS")
+	// Fault logs/history (used by dashboard/expo without auth)
+	// Retrieves fault history from today back 2 months (default)
+	r.HandleFunc("/api/faultLogs", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/faultLogs/", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/fault/history", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/fault/history/", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+
+	// Today's faults only (used by dashboard/expo without auth)
+	// Retrieves only faults from today
+	r.HandleFunc("/api/fault/today", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/fault/today/", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/todaysFaults", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/todaysFaults/", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
 
 	// Active fault (used by dashboard/expo without auth)
 	r.HandleFunc("/api/getActiveFault", func(w http.ResponseWriter, r *http.Request) {

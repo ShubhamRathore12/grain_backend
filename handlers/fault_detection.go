@@ -1,8 +1,16 @@
 package handlers
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
+	"strconv"
 	"strings"
+	"time"
+
+	"grain_backend/database"
 )
 
 // FaultCondition represents a detected fault condition
@@ -507,4 +515,334 @@ func parseInt(s string) (int, error) {
 	var i int
 	_, err := fmt.Sscanf(result.String(), "%d", &i)
 	return i, err
+}
+
+// HandleGetFaultHistory retrieves fault history from a table for the past X months
+func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
+	table := r.URL.Query().Get("table")
+	if table == "" {
+		table = "kabomachinedatasmart200"
+	}
+
+	// Parse months back (default 2 months)
+	monthsBack, _ := strconv.Atoi(r.URL.Query().Get("monthsBack"))
+	if monthsBack < 1 {
+		monthsBack = 2
+	}
+
+	// Parse limit (default 100)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit < 1 || limit > 1000 {
+		limit = 100
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	// Validate table name
+	allowedTables := getAllowedTables()
+	if !contains(allowedTables, table) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid table name",
+		})
+		return
+	}
+
+	// Detect timestamp column for this table
+	tsCol := getTimestampColumn(table)
+	if tsCol == "" {
+		tsCol = "created_at" // Fallback
+	}
+
+	// Calculate date range: from (X months ago) to today
+	today := time.Now()
+	fromDate := today.AddDate(0, -monthsBack, 0)
+
+	// Build WHERE clause to filter records with faults from the date range
+	query := fmt.Sprintf(`
+		SELECT * FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''
+		ORDER BY `+"`%s`"+` DESC 
+		LIMIT ? OFFSET ?`,
+		table, tsCol, tsCol, tsCol)
+
+	offset := (page - 1) * limit
+
+	rows, err := database.SafeQuery(query,
+		fromDate.Format("2006-01-02 15:04:05"),
+		today.Format("2006-01-02 23:59:59"),
+		limit,
+		offset,
+	)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to fetch fault history",
+			"message": err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	// Get total count
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) as total FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
+		table, tsCol, tsCol)
+
+	countRows, err := database.SafeQuery(countQuery,
+		fromDate.Format("2006-01-02 15:04:05"),
+		today.Format("2006-01-02 23:59:59"),
+	)
+	if err != nil {
+		log.Printf("Error getting count: %v", err)
+	}
+	defer countRows.Close()
+
+	var total int
+	if countRows.Next() {
+		countRows.Scan(&total)
+	}
+
+	// Parse results
+	data := scanFaultRecords(rows)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"data":         data,
+		"page":         page,
+		"limit":        limit,
+		"total":        total,
+		"totalPages":   (total + limit - 1) / limit,
+		"monthsBack":   monthsBack,
+		"fromDate":     fromDate.Format("2006-01-02"),
+		"toDate":       today.Format("2006-01-02"),
+		"table":        table,
+		"description":  fmt.Sprintf("Fault history for %s from last %d month(s)", table, monthsBack),
+	})
+}
+
+// scanFaultRecords scans rows and converts to fault records with formatted descriptions
+func scanFaultRecords(rows *sql.Rows) []map[string]interface{} {
+	result := []map[string]interface{}{}
+	columns, _ := rows.Columns()
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		rows.Scan(valuePtrs...)
+		rowMap := make(map[string]interface{})
+		var faultCode string
+
+		for i, col := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				if col == "FAULT_CODE" {
+					faultCode = string(b)
+				}
+				rowMap[col] = string(b)
+			} else if t, ok := val.(time.Time); ok {
+				rowMap[col] = t.Format("2006-01-02 15:04:05")
+			} else {
+				rowMap[col] = val
+			}
+		}
+
+		// Add formatted fault description
+		if faultCode != "" {
+			codes := strings.Split(faultCode, ",")
+			rowMap["FAULT_DESCRIPTION"] = formatFaultsWithCode(codes)
+		}
+
+		result = append(result, rowMap)
+	}
+
+	return result
+}
+
+// HandleGetTodaysFaults retrieves fault records from TODAY only
+func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
+	table := r.URL.Query().Get("table")
+	if table == "" {
+		table = "kabomachinedatasmart200"
+	}
+
+	// Parse limit (default 100)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit < 1 || limit > 1000 {
+		limit = 100
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+
+	// Validate table name
+	allowedTables := getAllowedTables()
+	if !contains(allowedTables, table) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Invalid table name",
+		})
+		return
+	}
+
+	// Detect timestamp column for this table
+	tsCol := getTimestampColumn(table)
+	if tsCol == "" {
+		tsCol = "created_at" // Fallback
+	}
+
+	// Calculate today's date range
+	today := time.Now()
+	startOfDay := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+	endOfDay := time.Date(today.Year(), today.Month(), today.Day(), 23, 59, 59, 0, today.Location())
+
+	// Build WHERE clause to filter records with faults from TODAY only
+	query := fmt.Sprintf(`
+		SELECT * FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''
+		ORDER BY `+"`%s`"+` DESC 
+		LIMIT ? OFFSET ?`,
+		table, tsCol, tsCol, tsCol)
+
+	offset := (page - 1) * limit
+
+	rows, err := database.SafeQuery(query,
+		startOfDay.Format("2006-01-02 15:04:05"),
+		endOfDay.Format("2006-01-02 15:04:05"),
+		limit,
+		offset,
+	)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Failed to fetch today's faults",
+			"message": err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	// Get total count
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) as total FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
+		table, tsCol, tsCol)
+
+	countRows, err := database.SafeQuery(countQuery,
+		startOfDay.Format("2006-01-02 15:04:05"),
+		endOfDay.Format("2006-01-02 15:04:05"),
+	)
+	if err != nil {
+		log.Printf("Error getting count: %v", err)
+	}
+	defer countRows.Close()
+
+	var total int
+	if countRows.Next() {
+		countRows.Scan(&total)
+	}
+
+	// Parse results
+	data := scanFaultRecords(rows)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"data":        data,
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"totalPages":  (total + limit - 1) / limit,
+		"date":        today.Format("2006-01-02"),
+		"table":       table,
+		"description": fmt.Sprintf("Faults recorded today (%s)", today.Format("2006-01-02")),
+	})
+}
+
+// GetFaultHistory is a helper to get fault records from a specific table for the past N months
+// Used when you need to query faults outside of the HTTP handler
+func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map[string]interface{}, int, error) {
+	if monthsBack < 1 {
+		monthsBack = 2
+	}
+	if limit < 1 || limit > 1000 {
+		limit = 100
+	}
+
+	// Detect timestamp column
+	tsCol := getTimestampColumn(table)
+	if tsCol == "" {
+		tsCol = "created_at"
+	}
+
+	// Calculate date range
+	today := time.Now()
+	fromDate := today.AddDate(0, -monthsBack, 0)
+
+	// Get total count
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) as total FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
+		table, tsCol, tsCol)
+
+	countRows, err := database.SafeQuery(countQuery,
+		fromDate.Format("2006-01-02 15:04:05"),
+		today.Format("2006-01-02 23:59:59"),
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer countRows.Close()
+
+	var total int
+	if countRows.Next() {
+		countRows.Scan(&total)
+	}
+
+	// Get paginated data
+	query := fmt.Sprintf(`
+		SELECT * FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''
+		ORDER BY `+"`%s`"+` DESC 
+		LIMIT ? OFFSET ?`,
+		table, tsCol, tsCol, tsCol)
+
+	rows, err := database.SafeQuery(query,
+		fromDate.Format("2006-01-02 15:04:05"),
+		today.Format("2006-01-02 23:59:59"),
+		limit,
+		offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	data := scanFaultRecords(rows)
+	return data, total, nil
 }

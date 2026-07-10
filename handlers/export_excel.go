@@ -162,12 +162,15 @@ const excelBatchSize = 5000
 // HandleExportExcel exports table data as Excel (.xlsx)
 // Columns: id, created_at, all temperatures, FAULT_CODE, then all remaining columns
 func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[HandleExportExcel] START - endpoint called")
+
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error": "Method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
 	table := r.URL.Query().Get("table")
+	log.Printf("[HandleExportExcel] table param: %s", table)
 	if table == "" {
 		table = "kabomachinedatasmart200"
 	}
@@ -218,15 +221,19 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	desiredColumns := getTemperatureColumns(table, allColumns)
-	exportColumns, exportIndices := filterColumnsForExcel(allColumns, desiredColumns)
+	exportColumns, exportIndices := applyColumnOrder(table, allColumns)
 
+	log.Printf("[Excel] Table: %s, allColumns: %d, exportColumns: %d", table, len(allColumns), len(exportColumns))
 	if len(exportColumns) == 0 {
+		log.Printf("[Excel] ERROR: exportColumns empty! Reverting to database order")
 		exportColumns = allColumns
 		exportIndices = make([]int, len(allColumns))
 		for i := range allColumns {
 			exportIndices[i] = i
 		}
+	}
+	if len(exportColumns) > 0 {
+		log.Printf("[Excel] First 3 columns: %s, %s, %s", exportColumns[0], exportColumns[1], exportColumns[2])
 	}
 
 	tsColNames := map[string]bool{

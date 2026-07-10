@@ -178,64 +178,8 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine which columns to export (filter for AP models)
-	columns := allColumns
-	colSourceIndices := make([]int, len(allColumns)) // maps export col index -> original col index
-	for i := range allColumns {
-		colSourceIndices[i] = i
-	}
-	if isAPModel(table) {
-		filtered, indices := filterColumns(allColumns, apModelColumns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isGTPL124(table) {
-		filtered, indices := filterColumns(allColumns, gtpl124Columns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isThailandT(table) {
-		filtered, indices := filterColumns(allColumns, thailandTColumns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isGTPL118(table) {
-		filtered, indices := filterColumns(allColumns, gtpl118Columns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isEModel(table) {
-		filtered, indices := filterColumns(allColumns, eModelColumns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isEPModel(table) {
-		filtered, indices := filterColumns(allColumns, epModelColumns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isT650Model(table) {
-		filtered, indices := filterColumns(allColumns, t650ModelColumns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	} else if isTModel(table) {
-		filtered, indices := filterColumns(allColumns, tModelColumns)
-		if len(filtered) > 0 {
-			columns = filtered
-			colSourceIndices = indices
-		}
-	}
-
-	// Always show id, created_at, created_on first.
-	columns, colSourceIndices = promoteTimestampCols(columns, colSourceIndices)
+	// Apply kabu column order if available
+	columns, colSourceIndices := applyColumnOrder(table, allColumns)
 
 	// Identify timestamp column indices and data columns for dedup
 	tsColNames := map[string]bool{

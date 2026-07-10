@@ -87,13 +87,13 @@ func main() {
 	r.HandleFunc("/api/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
 
-	// Excel/CSV export (downloads last 3 days by default)
-	r.HandleFunc("/api/export", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/export/", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
-
-	// Excel XLSX export
+	// Excel XLSX export - register specific routes FIRST
 	r.HandleFunc("/api/export/excel", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/export/excel/", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
+
+	// CSV export (downloads last 3 days by default) - register generic routes AFTER
+	r.HandleFunc("/api/export", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/export/", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
 
 	// All data routes (used by dashboard without auth)
 	r.HandleFunc("/api/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")

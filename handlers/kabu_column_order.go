@@ -108,6 +108,32 @@ func parseColumnLine(line string) []string {
 	return result
 }
 
+// promoteFrontColumns moves created_at and created_on (in that order) to the
+// front of the column list, keeping their source indices aligned. Used so every
+// export (CSV + Excel) leads with the timestamp columns.
+func promoteFrontColumns(cols []string, indices []int) ([]string, []int) {
+	front := []string{"created_at", "created_on"}
+	newCols := make([]string, 0, len(cols))
+	newIdx := make([]int, 0, len(indices))
+	used := make(map[int]bool)
+	for _, name := range front {
+		for i, c := range cols {
+			if c == name && !used[i] {
+				newCols = append(newCols, c)
+				newIdx = append(newIdx, indices[i])
+				used[i] = true
+			}
+		}
+	}
+	for i, c := range cols {
+		if !used[i] {
+			newCols = append(newCols, c)
+			newIdx = append(newIdx, indices[i])
+		}
+	}
+	return newCols, newIdx
+}
+
 // applyColumnOrder reorders database columns to match KABU specification
 func applyColumnOrder(table string, allColumns []string) ([]string, []int) {
 	initializeKabuColumns()
@@ -133,7 +159,7 @@ func applyColumnOrder(table string, allColumns []string) ([]string, []int) {
 			for i := range allColumns {
 				indices[i] = i
 			}
-			return allColumns, indices
+			return promoteFrontColumns(allColumns, indices)
 		}
 	}
 
@@ -168,5 +194,5 @@ func applyColumnOrder(table string, allColumns []string) ([]string, []int) {
 		}
 	}
 
-	return result, resultIndices
+	return promoteFrontColumns(result, resultIndices)
 }

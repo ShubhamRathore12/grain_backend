@@ -315,7 +315,6 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 	rowNum := 5
 	totalFetched := 0
 	offset := 0
-	isIndian := isIndianMachine(table)
 
 	for totalFetched < maxRows {
 		batchLimit := excelBatchSize
@@ -386,19 +385,15 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 
-					exportVals[ei] = formatFaultsWithCode(ordered)
+					exportVals[ei] = strings.Join(ordered, ",")
 					continue
 				}
 
 				switch v := val.(type) {
 				case []byte:
 					if tsExportIndices[ei] {
-						if t, err := time.Parse("2006-01-02 15:04:05", string(v)); err == nil {
-							if isIndian {
-								exportVals[ei] = t.Format("2006-01-02 15:04:05")
-							} else {
-								exportVals[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
-							}
+						if t, err := time.ParseInLocation("2006-01-02 15:04:05", string(v), sourceTZ); err == nil {
+							exportVals[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
 						} else {
 							exportVals[ei] = string(v)
 						}
@@ -406,11 +401,7 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 						exportVals[ei] = string(v)
 					}
 				case time.Time:
-					if isIndian {
-						exportVals[ei] = v.Format("2006-01-02 15:04:05")
-					} else {
-						exportVals[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
-					}
+					exportVals[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
 				case nil:
 					exportVals[ei] = ""
 				default:

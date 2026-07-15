@@ -69,6 +69,11 @@ var machineTimezones = map[string]*time.Location{
 	"kabo": mustLoadLocation("Asia/Kolkata"),
 }
 
+// sourceTZ is the timezone the database physically stores timestamps in.
+// The data-collection server sits in India, so raw DB datetimes are IST.
+// Exports parse in this zone, then convert to each machine's local timezone.
+var sourceTZ = mustLoadLocation("Asia/Kolkata")
+
 func mustLoadLocation(name string) *time.Location {
 	loc, err := time.LoadLocation(name)
 	if err != nil {
@@ -274,81 +279,62 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 			rowCount++
 			rows.Scan(valuePtrs...)
 
-			// Extract only the export columns
-			// For Indian machines, keep times as-is from database (no timezone conversion)
-			isIndian := isIndianMachine(table)
+			// Extract only the export columns.
+			// Timestamps are stored in IST (sourceTZ) and converted to the
+			// machine's local timezone for display.
 			row := make([]string, len(columns))
-			
+
 			// Create a map of all values for fault detection
 			allValuesMap := make(map[string]interface{})
 			for i, col := range allColumns {
 				allValuesMap[col] = values[i]
 			}
-			
+
 			// Detect fault conditions
 			detectedFaultCode := detectFaultConditions(table, allValuesMap)
-			
+
 			for ei, ai := range colSourceIndices {
 				val := values[ai]
 				colName := columns[ei]
-				
-				// Check if this is the FAULT_CODE or Fault_Code1 column
-				// If fault code is empty and we detected faults, populate it
-				if (colName == "FAULT_CODE" || colName == "Fault_Code1") && detectedFaultCode != "" {
-					// Check if current value is empty
+
+				// Fault-code column: merge the stored code with any detected
+				// faults, format each with its description, and never leave blank.
+				if colName == "FAULT_CODE" || colName == "Fault_Code1" {
 					currentVal := ""
 					switch v := val.(type) {
 					case []byte:
 						currentVal = string(v)
 					case string:
 						currentVal = v
-					case nil:
-						currentVal = ""
-					default:
-						currentVal = fmt.Sprintf("%v", v)
 					}
-					
-					// If current fault code is empty, use detected fault
-					// If current fault code exists, append detected fault
-					if currentVal == "" {
-						row[ei] = detectedFaultCode
-					} else {
-						// Combine existing and detected faults (avoid duplicates)
-						existingFaults := strings.Split(currentVal, ",")
-						detectedFaults := strings.Split(detectedFaultCode, ",")
-						combinedFaults := make(map[string]bool)
-						
-						for _, f := range existingFaults {
-							combinedFaults[strings.TrimSpace(f)] = true
+
+					seen := map[string]bool{}
+					ordered := []string{}
+					for _, f := range strings.Split(currentVal, ",") {
+						f = strings.TrimSpace(f)
+						if f != "" && !seen[f] {
+							seen[f] = true
+							ordered = append(ordered, f)
 						}
-						for _, f := range detectedFaults {
-							combinedFaults[strings.TrimSpace(f)] = true
-						}
-						
-						// Convert back to comma-separated string
-						var result []string
-						for f := range combinedFaults {
-							if f != "" {
-								result = append(result, f)
-							}
-						}
-						row[ei] = strings.Join(result, ",")
 					}
+					for _, f := range strings.Split(detectedFaultCode, ",") {
+						f = strings.TrimSpace(f)
+						if f != "" && !seen[f] {
+							seen[f] = true
+							ordered = append(ordered, f)
+						}
+					}
+
+					row[ei] = strings.Join(ordered, ",")
 					continue
 				}
-				
+
 				// Regular value processing
 				switch v := val.(type) {
 				case []byte:
 					if tsColIndices[ei] {
-						if t, err := time.Parse("2006-01-02 15:04:05", string(v)); err == nil {
-							if isIndian {
-								// Indian machines: keep time as-is from database
-								row[ei] = t.Format("2006-01-02 15:04:05")
-							} else {
-								// Other machines: convert to machine's local timezone
-								row[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
-							}
+						if t, err := time.ParseInLocation("2006-01-02 15:04:05", string(v), sourceTZ); err == nil {
+							row[ei] = t.In(machineTZ).Format("2006-01-02 15:04:05")
 						} else {
 							row[ei] = string(v)
 						}
@@ -356,13 +342,7 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 						row[ei] = string(v)
 					}
 				case time.Time:
-					if isIndian {
-						// Indian machines: keep time as-is from database
-						row[ei] = v.Format("2006-01-02 15:04:05")
-					} else {
-						// Other machines: convert to machine's local timezone
-						row[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
-					}
+					row[ei] = v.In(machineTZ).Format("2006-01-02 15:04:05")
 				case nil:
 					row[ei] = ""
 				default:

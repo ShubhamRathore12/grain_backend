@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -161,15 +162,19 @@ func main() {
 	// Wrap the entire router with CORS so headers are set on EVERY response,
 	// including 404/405 and preflight OPTIONS that never match a route.
 	// (gorilla/mux's r.Use() middleware does NOT run on unmatched routes.)
-	handler := middleware.EnableCORS(r)
+	// Recover is outermost so a panic in ANY handler (or in CORS/deadline
+	// middleware) is caught and logged instead of crashing the process.
+	handler := middleware.Recover(requestDeadlineMiddleware(middleware.EnableCORS(r)))
 
 	// Create HTTP server
 	server := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      handler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 5 * time.Minute,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	// Start server in goroutine
@@ -199,4 +204,20 @@ func main() {
 	database.CloseDatabase()
 
 	log.Println("Server stopped gracefully")
+}
+
+// requestDeadlineMiddleware ensures abandoned or overloaded requests release
+// their database work. Exports receive a longer deadline because they stream
+// table data in batches.
+func requestDeadlineMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timeout := 30 * time.Second
+		if strings.HasPrefix(r.URL.Path, "/api/export") {
+			timeout = 4 * time.Minute
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

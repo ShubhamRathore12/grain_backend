@@ -28,10 +28,10 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Query database
 	query := "SELECT id, accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess, location, created_at FROM kabu_users WHERE username = ? AND password = ?"
-	rows, err := database.SafeQuery(query, loginReq.Username, loginReq.Password)
+	rows, err := database.SafeQueryContext(r.Context(), query, loginReq.Username, loginReq.Password)
 	if err != nil {
 		log.Printf("Login query error: %v", err)
-		
+
 		if strings.Contains(err.Error(), "Database connection unavailable") ||
 			strings.Contains(err.Error(), "ETIMEDOUT") {
 			w.Header().Set("Content-Type", "application/json")
@@ -134,7 +134,7 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Check if username already exists
 	checkQuery := "SELECT id FROM kabu_users WHERE username = ?"
-	rows, err := database.SafeQuery(checkQuery, regReq.Username)
+	rows, err := database.SafeQueryContext(r.Context(), checkQuery, regReq.Username)
 	if err != nil {
 		log.Printf("Username check error: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -169,7 +169,7 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		(accountType, firstName, lastName, username, email, phoneNumber, company, password, monitorAccess, location) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err = database.SafeExec(insertQuery,
+	_, err = database.SafeExecContext(r.Context(), insertQuery,
 		regReq.AccountType,
 		regReq.FirstName,
 		regReq.LastName,

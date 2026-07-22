@@ -14,6 +14,16 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+// writeExcelIncompleteMarker stamps a visible truncation notice into the sheet.
+// The Excel file is built in memory, but its HTTP headers are already committed,
+// so this marker is the only way to signal a partial export to the downloader.
+func writeExcelIncompleteMarker(f *excelize.File, sheetName string, rowNum int, reason string) {
+	a, _ := excelize.CoordinatesToCellName(1, rowNum)
+	b, _ := excelize.CoordinatesToCellName(2, rowNum)
+	f.SetCellValue(sheetName, a, "EXPORT_INCOMPLETE")
+	f.SetCellValue(sheetName, b, reason)
+}
+
 // getTemperatureColumns dynamically extracts columns for Excel export in order:
 // 1. id, created_at, created_on
 // 2. All temperature columns (T0, T1, T2, TH, etc.)
@@ -22,20 +32,20 @@ import (
 func getTemperatureColumns(table string, allColumns []string) []string {
 	// Start with standard timestamp columns
 	result := []string{"id", "created_at", "created_on"}
-	
+
 	// Temperature patterns to look for
 	tempPatterns := []string{
 		"temp", "Temp", "TEMP",
 		"T0", "T1", "T2", "TH", "Th",
 		"AIR_OUTLET", "AMBIENT", "COLD_AIR", "AFTER_HEAT", "HEATER",
 	}
-	
+
 	// Track what we've added
 	added := make(map[string]bool)
 	for _, col := range result {
 		added[col] = true
 	}
-	
+
 	// 1. Collect and add temperature columns
 	tempCols := []string{}
 	for _, col := range allColumns {
@@ -51,7 +61,7 @@ func getTemperatureColumns(table string, allColumns []string) []string {
 		}
 	}
 	result = append(result, tempCols...)
-	
+
 	// 2. Add fault code columns
 	faultCols := []string{"FAULT_CODE", "Fault_Code1"}
 	for _, col := range faultCols {
@@ -63,7 +73,7 @@ func getTemperatureColumns(table string, allColumns []string) []string {
 			}
 		}
 	}
-	
+
 	// 3. Add all remaining columns from the table
 	for _, col := range allColumns {
 		if !added[col] {
@@ -71,7 +81,7 @@ func getTemperatureColumns(table string, allColumns []string) []string {
 			added[col] = true
 		}
 	}
-	
+
 	return result
 }
 
@@ -81,17 +91,17 @@ func filterColumnsForExcel(allColumns []string, exportColumns []string) ([]strin
 	for i, col := range allColumns {
 		colIndexMap[col] = i
 	}
-	
+
 	filtered := []string{}
 	indices := []int{}
-	
+
 	for _, col := range exportColumns {
 		if idx, ok := colIndexMap[col]; ok {
 			filtered = append(filtered, col)
 			indices = append(indices, idx)
 		}
 	}
-	
+
 	return filtered, indices
 }
 
@@ -138,15 +148,15 @@ var apModelMachines = map[string]bool{}
 var tModelMachines = map[string]bool{}
 var t650ModelMachines = map[string]bool{}
 
-func isAPModel(table string) bool { return false }
-func isTModel(table string) bool { return false }
-func isT650Model(table string) bool { return false }
-func isGTPL124(table string) bool { return false }
-func isThailandT(table string) bool { return false }
-func isGTPL118(table string) bool { return false }
-func isEModel(table string) bool { return false }
-func isEPModel(table string) bool { return false }
-func hasHeater(table string) bool { return false }
+func isAPModel(table string) bool                                      { return false }
+func isTModel(table string) bool                                       { return false }
+func isT650Model(table string) bool                                    { return false }
+func isGTPL124(table string) bool                                      { return false }
+func isThailandT(table string) bool                                    { return false }
+func isGTPL118(table string) bool                                      { return false }
+func isEModel(table string) bool                                       { return false }
+func isEPModel(table string) bool                                      { return false }
+func hasHeater(table string) bool                                      { return false }
 func dropHeaterColumns(cols []string, indices []int) ([]string, []int) { return cols, indices }
 
 func filterColumns(allColumns []string, allowed []string) ([]string, []int) {
@@ -181,6 +191,12 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	release, ok := acquireExportSlot(w)
+	if !ok {
+		return
+	}
+	defer release()
+
 	fromDate := r.URL.Query().Get("fromDate")
 	if fromDate == "" {
 		fromDate = r.URL.Query().Get("from")
@@ -205,11 +221,11 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tsCol := getTimestampColumn(table)
+	tsCol := getTimestampColumn(r.Context(), table)
 	machineTZ := getTimezoneForTable(table)
 
 	colQuery := "SELECT * FROM `" + table + "` LIMIT 1"
-	colRows, err := database.SafeQuery(colQuery)
+	colRows, err := database.SafeQueryContext(r.Context(), colQuery)
 	if err != nil {
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
 		return
@@ -331,12 +347,15 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 			queryArgs = []interface{}{fromDate, toDate}
 		}
 
-		rows, err := database.SafeQuery(query, queryArgs...)
+		rows, err := database.SafeQueryContext(r.Context(), query, queryArgs...)
 		if err != nil {
+			log.Printf("ERROR: excel export truncated for %s at offset %d: %v", table, offset, err)
+			writeExcelIncompleteMarker(f, sheetName, rowNum, fmt.Sprintf("database error after %d rows: %v", totalFetched, err))
 			break
 		}
 
 		batchCount := 0
+		scanErr := false
 		values := make([]interface{}, len(allColumns))
 		valuePtrs := make([]interface{}, len(allColumns))
 		for i := range values {
@@ -345,13 +364,17 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 
 		for rows.Next() {
 			batchCount++
-			rows.Scan(valuePtrs...)
+			if err := rows.Scan(valuePtrs...); err != nil {
+				log.Printf("ERROR: excel export scan failed for %s at offset %d: %v", table, offset, err)
+				scanErr = true
+				break
+			}
 
 			allValuesMap := make(map[string]interface{})
 			for i, col := range allColumns {
 				allValuesMap[col] = values[i]
 			}
-			
+
 			detectedFaultCode := detectFaultConditions(table, allValuesMap)
 
 			exportVals := make([]string, len(exportIndices))
@@ -450,6 +473,11 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.Close()
 
+		if scanErr {
+			writeExcelIncompleteMarker(f, sheetName, rowNum, fmt.Sprintf("row read error after %d rows", totalFetched))
+			break
+		}
+
 		if batchCount < batchLimit {
 			break
 		}
@@ -507,5 +535,7 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 
 	excelCopy := make([]byte, emailBuf.Len())
 	copy(excelCopy, emailBuf.Bytes())
-	go sendExcelEmail(excelCopy, filename, table, fromDate, toDate, dataRowCount)
+	dispatchEmail("excel:"+table, func() {
+		sendExcelEmail(excelCopy, filename, table, fromDate, toDate, dataRowCount)
+	})
 }

@@ -44,10 +44,14 @@ func getEnv(key, defaultValue string) string {
 	return value
 }
 
-// Database connection pool configuration
+// Database connection pool configuration.
+// MySQL server allows max 25 connections total. Keep the app pool below that so
+// admin/root and any other client always have connections available — a pool at
+// or above the server limit causes "Too many connections" errors under load.
+// Internal concurrency caps (status refresh: 8, exports: 3) fit inside this pool.
 const (
-	MaxOpenConns    = 25
-	MaxIdleConns    = 10
+	MaxOpenConns    = 15
+	MaxIdleConns    = 5
 	ConnMaxLifetime = 5 * time.Minute
 	ConnMaxIdleTime = 3 * time.Minute
 )

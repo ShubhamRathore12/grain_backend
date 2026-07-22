@@ -1,9 +1,11 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,8 +24,8 @@ func InitDatabase() error {
 	var initErr error
 	once.Do(func() {
 		cfg := config.GetConfig()
-		
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=30s",
+
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=5s&readTimeout=15s&writeTimeout=15s",
 			cfg.DBUser,
 			cfg.DBPassword,
 			cfg.DBHost,
@@ -45,7 +47,9 @@ func InitDatabase() error {
 		db.SetConnMaxIdleTime(config.ConnMaxIdleTime)
 
 		// Test connection
-		if err := db.Ping(); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
 			initErr = fmt.Errorf("failed to ping database: %w", err)
 			return
 		}
@@ -73,94 +77,105 @@ func CloseDatabase() {
 }
 
 // IsDatabaseConnected checks if the database is reachable
-func IsDatabaseConnected() bool {
+func IsDatabaseConnected(ctx context.Context) bool {
 	if db == nil {
 		return false
 	}
-	return db.Ping() == nil
+	return db.PingContext(ctx) == nil
 }
 
-// ensureConnection pings the database and reconnects if the connection is stale
-func ensureConnection() error {
+// Stats returns a snapshot of the database pool for health monitoring.
+func Stats() sql.DBStats {
 	if db == nil {
-		return fmt.Errorf("database not connected")
+		return sql.DBStats{}
 	}
-	if err := db.Ping(); err != nil {
-		log.Printf("⚠️ Database ping failed: %v, connection will be refreshed by pool", err)
-	}
-	return nil
+	return db.Stats()
 }
 
 // SafeQuery executes a query with proper error handling and connection management
 func SafeQuery(query string, args ...interface{}) (*sql.Rows, error) {
+	return SafeQueryContext(context.Background(), query, args...)
+}
+
+// SafeQueryContext ties connection acquisition and query execution to the request.
+func SafeQueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
 
 	startTime := time.Now()
-	rows, err := db.Query(query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	duration := time.Since(startTime)
 
 	if err != nil {
 		// Retry once on stale connection errors
-		if isConnectionError(err) {
-			log.Printf("⚠️ Stale connection detected, retrying query...")
-			ensureConnection()
-			rows, err = db.Query(query, args...)
+		if isConnectionError(err) && ctx.Err() == nil {
+			log.Printf("Stale database connection detected; retrying query")
+			rows, err = db.QueryContext(ctx, query, args...)
 			duration = time.Since(startTime)
 			if err != nil {
-				log.Printf("❌ Query error after retry (%v): %s", duration, err.Error())
+				log.Printf("Query failed after retry (%v): %s", duration, err.Error())
 				return nil, err
 			}
-			log.Printf("✓ Query executed in %v (after retry)", duration)
 			return rows, nil
 		}
-		log.Printf("❌ Query error (%v): %s", duration, err.Error())
+		log.Printf("Query failed (%v): %s", duration, err.Error())
 		return nil, err
 	}
 
-	log.Printf("✓ Query executed in %v", duration)
+	if duration >= time.Second {
+		log.Printf("Slow query completed in %v", duration)
+	}
 	return rows, nil
 }
 
 // SafeQueryRow executes a query that returns a single row
 func SafeQueryRow(query string, args ...interface{}) *sql.Row {
+	return SafeQueryRowContext(context.Background(), query, args...)
+}
+
+// SafeQueryRowContext executes a single-row query tied to the request context.
+func SafeQueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	if db == nil {
 		return nil
 	}
-	ensureConnection()
-	return db.QueryRow(query, args...)
+	return db.QueryRowContext(ctx, query, args...)
 }
 
 // SafeExec executes an insert/update/delete query
 func SafeExec(query string, args ...interface{}) (sql.Result, error) {
+	return SafeExecContext(context.Background(), query, args...)
+}
+
+// SafeExecContext executes a statement tied to the request context.
+func SafeExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
 
 	startTime := time.Now()
-	result, err := db.Exec(query, args...)
+	result, err := db.ExecContext(ctx, query, args...)
 	duration := time.Since(startTime)
 
 	if err != nil {
 		// Retry once on stale connection errors
-		if isConnectionError(err) {
-			log.Printf("⚠️ Stale connection detected, retrying exec...")
-			ensureConnection()
-			result, err = db.Exec(query, args...)
+		if isConnectionError(err) && ctx.Err() == nil {
+			log.Printf("Stale database connection detected; retrying exec")
+			result, err = db.ExecContext(ctx, query, args...)
 			duration = time.Since(startTime)
 			if err != nil {
-				log.Printf("❌ Exec error after retry (%v): %s", duration, err.Error())
+				log.Printf("Exec failed after retry (%v): %s", duration, err.Error())
 				return nil, err
 			}
-			log.Printf("✓ Exec executed in %v (after retry)", duration)
 			return result, nil
 		}
-		log.Printf("❌ Exec error (%v): %s", duration, err.Error())
+		log.Printf("Exec failed (%v): %s", duration, err.Error())
 		return nil, err
 	}
 
-	log.Printf("✓ Exec executed in %v", duration)
+	if duration >= time.Second {
+		log.Printf("Slow exec completed in %v", duration)
+	}
 	return result, nil
 }
 
@@ -169,9 +184,9 @@ func isConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errMsg := err.Error()
-	return errMsg == "invalid connection" ||
-		errMsg == "driver: bad connection" ||
-		errMsg == "unexpected EOF" ||
-		errMsg == "connection refused"
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "invalid connection") ||
+		strings.Contains(errMsg, "driver: bad connection") ||
+		strings.Contains(errMsg, "unexpected eof") ||
+		strings.Contains(errMsg, "connection refused")
 }

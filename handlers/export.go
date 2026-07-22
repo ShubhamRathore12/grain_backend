@@ -149,6 +149,12 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	release, ok := acquireExportSlot(w)
+	if !ok {
+		return
+	}
+	defer release()
+
 	// Default to last 3 days if no dates provided
 	fromDate := r.URL.Query().Get("fromDate")
 	toDate := r.URL.Query().Get("toDate")
@@ -162,14 +168,14 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	fromDate, toDate = normalizeDateRange(fromDate, toDate)
 
 	// Detect timestamp column for this table
-	tsCol := getTimestampColumn(table)
+	tsCol := getTimestampColumn(r.Context(), table)
 
 	// Get the timezone for this machine
 	machineTZ := getTimezoneForTable(table)
 
 	// First get columns from a single row
 	colQuery := "SELECT * FROM `" + table + "` LIMIT 1"
-	colRows, err := database.SafeQuery(colQuery)
+	colRows, err := database.SafeQueryContext(r.Context(), colQuery)
 	if err != nil {
 		log.Printf("Export columns error: %v", err)
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
@@ -262,13 +268,19 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 			queryArgs = []interface{}{fromDate, toDate}
 		}
 
-		rows, err := database.SafeQuery(query, queryArgs...)
+		rows, err := database.SafeQueryContext(r.Context(), query, queryArgs...)
 		if err != nil {
-			log.Printf("Export batch error at offset %d: %v", offset, err)
+			// Headers/rows are already streamed, so the HTTP status cannot be
+			// changed. Emit a visible marker row so the downloaded file is
+			// self-evidently incomplete instead of silently truncated.
+			log.Printf("ERROR: export truncated for %s at offset %d: %v", table, offset, err)
+			writer.Write([]string{"EXPORT_INCOMPLETE", fmt.Sprintf("database error after %d rows: %v", offset, err)})
+			writer.Flush()
 			break
 		}
 
 		rowCount := 0
+		scanErr := false
 		values := make([]interface{}, len(allColumns))
 		valuePtrs := make([]interface{}, len(allColumns))
 		for i := range values {
@@ -277,7 +289,11 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 		for rows.Next() {
 			rowCount++
-			rows.Scan(valuePtrs...)
+			if err := rows.Scan(valuePtrs...); err != nil {
+				log.Printf("ERROR: export scan failed for %s at offset %d: %v", table, offset, err)
+				scanErr = true
+				break
+			}
 
 			// Extract only the export columns.
 			// Timestamps are stored in IST (sourceTZ) and converted to the
@@ -391,6 +407,12 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		// Flush each batch immediately (frees memory)
 		writer.Flush()
 
+		if scanErr {
+			writer.Write([]string{"EXPORT_INCOMPLETE", fmt.Sprintf("row read error after %d rows", offset)})
+			writer.Flush()
+			break
+		}
+
 		// If we got fewer rows than batch size, we're done
 		if rowCount < exportBatchSize {
 			break
@@ -402,5 +424,5 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 	// Send email with CSV attachment in background (don't block the response)
 	csvCopy := make([]byte, emailBuf.Len())
 	copy(csvCopy, emailBuf.Bytes())
-	go sendCSVEmail(csvCopy, filename, table)
+	dispatchEmail("csv:"+table, func() { sendCSVEmail(csvCopy, filename, table) })
 }

@@ -46,13 +46,20 @@ func NewWebSocketHub() *WebSocketHub {
 
 // Run starts the WebSocket hub
 func (h *WebSocketHub) Run() {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("PANIC in WebSocket hub Run, restarting: %v", rec)
+			go h.Run() // self-heal: a crashed hub would silently stop all broadcasts
+		}
+	}()
 	for {
 		select {
 		case client := <-h.Register:
 			h.mu.Lock()
 			h.Clients[client] = true
+			count := len(h.Clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket client connected. Total clients: %d", len(h.Clients))
+			log.Printf("WebSocket client connected. Total clients: %d", count)
 
 		case client := <-h.Unregister:
 			h.mu.Lock()
@@ -60,21 +67,25 @@ func (h *WebSocketHub) Run() {
 				delete(h.Clients, client)
 				close(client.Send)
 			}
+			count := len(h.Clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket client disconnected. Total clients: %d", len(h.Clients))
+			log.Printf("WebSocket client disconnected. Total clients: %d", count)
 
 		case message := <-h.Broadcast:
-			h.mu.RLock()
+			// Full write lock: slow clients are deleted from the map here, and a
+			// delete under a read lock is a concurrent map write — a fatal error
+			// that recover() cannot catch and would crash the whole process.
+			h.mu.Lock()
 			for client := range h.Clients {
 				select {
 				case client.Send <- message:
 				default:
-					// Client buffer full, close connection
+					// Client buffer full, drop the connection.
 					close(client.Send)
 					delete(h.Clients, client)
 				}
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
 		}
 	}
 }
@@ -108,9 +119,10 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Send: make(chan []byte, 256),
 	}
 
-	h.Register <- client
-
-	// Send initial connection message
+	// Queue the initial message into the buffered channel BEFORE registering the
+	// client with the hub. Once registered, a concurrent broadcast could close
+	// client.Send, and writing to a closed channel panics. The client isn't in
+	// the hub map yet here, so nothing can close Send during this write.
 	initialMsg := map[string]interface{}{
 		"type":      "connected",
 		"data":      map[string]string{"status": "connected"},
@@ -119,6 +131,8 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	initialData, _ := json.Marshal(initialMsg)
 	client.Send <- initialData
 
+	h.Register <- client
+
 	// Handle client read/write
 	go h.writePump(client)
 	go h.readPump(client)
@@ -126,6 +140,9 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebSocketHub) readPump(client *Client) {
 	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("PANIC in WebSocket readPump: %v", rec)
+		}
 		h.Unregister <- client
 		client.Conn.Close()
 	}()
@@ -144,6 +161,9 @@ func (h *WebSocketHub) readPump(client *Client) {
 
 func (h *WebSocketHub) writePump(client *Client) {
 	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("PANIC in WebSocket writePump: %v", rec)
+		}
 		client.Conn.Close()
 	}()
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -112,7 +113,7 @@ func detectFaultConditions(table string, values map[string]interface{}) string {
 	} else if isGTPL118(table) {
 		return detectGTPL118Faults(values)
 	}
-	
+
 	// Generic fault detection
 	return detectGenericFaults(values)
 }
@@ -120,7 +121,7 @@ func detectFaultConditions(table string, values map[string]interface{}) string {
 // detectAPModelFaults detects faults for AP model machines
 func detectAPModelFaults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// Check LP pressure (too low or too high)
 	if lp, ok := getFloatValue(values, "LP_value"); ok {
 		if lp < 1.0 {
@@ -129,7 +130,7 @@ func detectAPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "LP_HIGH")
 		}
 	}
-	
+
 	// Check HP pressure
 	if hp, ok := getFloatValue(values, "HP_value"); ok {
 		if hp < 10.0 {
@@ -138,7 +139,7 @@ func detectAPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "HP_HIGH")
 		}
 	}
-	
+
 	// Check temperatures
 	if t1, ok := getFloatValue(values, "T1_temp_mean"); ok {
 		if t1 > 40.0 {
@@ -147,7 +148,7 @@ func detectAPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "T1_LOW")
 		}
 	}
-	
+
 	if t2, ok := getFloatValue(values, "T2_temp_mean"); ok {
 		if t2 > 45.0 {
 			faults = append(faults, "T2_HIGH")
@@ -155,7 +156,7 @@ func detectAPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "T2_LOW")
 		}
 	}
-	
+
 	// Check if machine is in manual mode but no operation
 	if manualMode, ok := getIntValue(values, "Manual_mode"); ok && manualMode == 1 {
 		// Check if any valve or blower is not operating
@@ -163,18 +164,18 @@ func detectAPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "BLOWER_STALLED")
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
 // detectTModelFaults detects faults for T model machines
 func detectTModelFaults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// Check pressures
 	if lp, ok := getFloatValue(values, "LP_value"); ok {
 		if lp < 1.5 {
@@ -183,7 +184,7 @@ func detectTModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "LP_HIGH_T")
 		}
 	}
-	
+
 	if hp, ok := getFloatValue(values, "HP_value"); ok {
 		if hp < 12.0 {
 			faults = append(faults, "HP_LOW_T")
@@ -191,7 +192,7 @@ func detectTModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "HP_HIGH_T")
 		}
 	}
-	
+
 	// Check temperatures
 	if t0, ok := getFloatValue(values, "T0_temp_mean"); ok {
 		if t0 > 35.0 {
@@ -200,31 +201,31 @@ func detectTModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "T0_LOW")
 		}
 	}
-	
+
 	// Check valve speeds
 	if hotValve, ok := getFloatValue(values, "Hot_valve_speed"); ok {
 		if hotValve > 0 && hotValve < 5.0 {
 			faults = append(faults, "HOT_VALVE_MIN")
 		}
 	}
-	
+
 	if ahtValve, ok := getFloatValue(values, "AHT_valve_speed"); ok {
 		if ahtValve > 0 && ahtValve < 5.0 {
 			faults = append(faults, "AHT_VALVE_MIN")
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
 // detectEModelFaults detects faults for E model machines
 func detectEModelFaults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// E models don't have FAULT_CODE column by default, but we can detect issues
 	if lp, ok := getFloatValue(values, "LP_value"); ok {
 		if lp < 2.0 {
@@ -233,7 +234,7 @@ func detectEModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "LP_HIGH_E")
 		}
 	}
-	
+
 	if hp, ok := getFloatValue(values, "HP_value"); ok {
 		if hp < 15.0 {
 			faults = append(faults, "HP_LOW_E")
@@ -241,30 +242,30 @@ func detectEModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "HP_HIGH_E")
 		}
 	}
-	
+
 	// Check heater operation
 	if heater, ok := getFloatValue(values, "Heater_speed"); ok {
 		if heater > 0 && heater < 10.0 {
 			faults = append(faults, "HEATER_LOW")
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
 // detectEPModelFaults detects faults for EP model machines (German)
 func detectEPModelFaults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// EP models have Fault_Code1 column
 	if faultCode1, ok := getStringValue(values, "Fault_Code1"); ok && faultCode1 != "" {
 		return faultCode1
 	}
-	
+
 	// If Fault_Code1 is empty, detect from other parameters
 	if lp, ok := getFloatValue(values, "LP"); ok {
 		if lp < 1.8 {
@@ -273,7 +274,7 @@ func detectEPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "LP_EP_HIGH")
 		}
 	}
-	
+
 	if hp, ok := getFloatValue(values, "HP"); ok {
 		if hp < 14.0 {
 			faults = append(faults, "HP_EP_LOW")
@@ -281,7 +282,7 @@ func detectEPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "HP_EP_HIGH")
 		}
 	}
-	
+
 	// Check temperatures with German machine column names
 	if outletTemp, ok := getFloatValue(values, "AIR_OUTLET_TEMP"); ok {
 		if outletTemp > 42.0 {
@@ -290,18 +291,18 @@ func detectEPModelFaults(values map[string]interface{}) string {
 			faults = append(faults, "OUTLET_LOW")
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
 // detectGTPL124Faults detects faults for GTPL-124 machines
 func detectGTPL124Faults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// Similar to T model but no CR_valve columns
 	if lp, ok := getFloatValue(values, "LP_value"); ok {
 		if lp < 1.5 {
@@ -310,7 +311,7 @@ func detectGTPL124Faults(values map[string]interface{}) string {
 			faults = append(faults, "LP_HIGH_124")
 		}
 	}
-	
+
 	// Check if auto mode is on but not maintaining temperature
 	if autoMode, ok := getIntValue(values, "Auto_mode"); ok && autoMode == 1 {
 		if t0, ok := getFloatValue(values, "T0_temp_mean"); ok {
@@ -324,25 +325,25 @@ func detectGTPL124Faults(values map[string]interface{}) string {
 			}
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
 // detectThailandTFaults detects faults for Thailand T model machines
 func detectThailandTFaults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// Check condenser fan
 	if condFan, ok := getFloatValue(values, "Cond_fan_speed"); ok {
 		if condFan > 0 && condFan < 15.0 {
 			faults = append(faults, "COND_FAN_LOW")
 		}
 	}
-	
+
 	// Similar to GTPL-124 with additional checks
 	return detectGTPL124Faults(values)
 }
@@ -350,21 +351,21 @@ func detectThailandTFaults(values map[string]interface{}) string {
 // detectGTPL118Faults detects faults for GTPL-118 machines
 func detectGTPL118Faults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// Check condenser fan speed
 	if condFan, ok := getFloatValue(values, "Condenser_fan_speed"); ok {
 		if condFan > 0 && condFan < 20.0 {
 			faults = append(faults, "COND_FAN_118_LOW")
 		}
 	}
-	
+
 	// Check AHT valve (note the spelling: AHT_vale_speed)
 	if ahtValve, ok := getFloatValue(values, "AHT_vale_speed"); ok {
 		if ahtValve > 0 && ahtValve < 10.0 {
 			faults = append(faults, "AHT_VALVE_118_LOW")
 		}
 	}
-	
+
 	// Check T1 set point vs actual
 	if t1, ok := getFloatValue(values, "T1_temp_mean"); ok {
 		if t1Set, ok := getFloatValue(values, "T1_set_point"); ok {
@@ -376,18 +377,18 @@ func detectGTPL118Faults(values map[string]interface{}) string {
 			}
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
 // detectGenericFaults detects generic faults for unknown machine types
 func detectGenericFaults(values map[string]interface{}) string {
 	faults := []string{}
-	
+
 	// Try to get common pressure values with different column names
 	pressureKeys := []string{"LP_value", "LP", "Low_Pressure", "low_pressure", "pressure_low"}
 	for _, key := range pressureKeys {
@@ -400,7 +401,7 @@ func detectGenericFaults(values map[string]interface{}) string {
 			break
 		}
 	}
-	
+
 	// Check for temperature issues
 	tempKeys := []string{"T1_temp_mean", "T1", "temp1", "temperature", "Temp"}
 	for _, key := range tempKeys {
@@ -413,11 +414,11 @@ func detectGenericFaults(values map[string]interface{}) string {
 			break
 		}
 	}
-	
+
 	if len(faults) > 0 {
 		return strings.Join(faults, ",")
 	}
-	
+
 	return ""
 }
 
@@ -494,7 +495,7 @@ func parseFloat(s string) (float64, error) {
 	if result.Len() == 0 {
 		return 0, fmt.Errorf("no numeric characters")
 	}
-	
+
 	var f float64
 	_, err := fmt.Sscanf(result.String(), "%f", &f)
 	return f, err
@@ -511,7 +512,7 @@ func parseInt(s string) (int, error) {
 	if result.Len() == 0 {
 		return 0, fmt.Errorf("no numeric characters")
 	}
-	
+
 	var i int
 	_, err := fmt.Sscanf(result.String(), "%d", &i)
 	return i, err
@@ -554,7 +555,7 @@ func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Detect timestamp column for this table
-	tsCol := getTimestampColumn(table)
+	tsCol := getTimestampColumn(r.Context(), table)
 	if tsCol == "" {
 		tsCol = "created_at" // Fallback
 	}
@@ -574,7 +575,25 @@ func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * limit
 
-	rows, err := database.SafeQuery(query,
+	// Get total count
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) as total FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
+		table, tsCol, tsCol)
+
+	var total int
+	err := database.SafeQueryRowContext(r.Context(), countQuery,
+		fromDate.Format("2006-01-02 15:04:05"),
+		today.Format("2006-01-02 23:59:59"),
+	).Scan(&total)
+	if err != nil {
+		log.Printf("Error getting fault history count: %v", err)
+		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := database.SafeQueryContext(r.Context(), query,
 		fromDate.Format("2006-01-02 15:04:05"),
 		today.Format("2006-01-02 23:59:59"),
 		limit,
@@ -592,43 +611,22 @@ func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// Get total count
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) as total FROM `+"`%s`"+` 
-		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
-		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
-		table, tsCol, tsCol)
-
-	countRows, err := database.SafeQuery(countQuery,
-		fromDate.Format("2006-01-02 15:04:05"),
-		today.Format("2006-01-02 23:59:59"),
-	)
-	if err != nil {
-		log.Printf("Error getting count: %v", err)
-	}
-	defer countRows.Close()
-
-	var total int
-	if countRows.Next() {
-		countRows.Scan(&total)
-	}
-
 	// Parse results
 	data := scanFaultRecords(rows)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"data":         data,
-		"page":         page,
-		"limit":        limit,
-		"total":        total,
-		"totalPages":   (total + limit - 1) / limit,
-		"monthsBack":   monthsBack,
-		"fromDate":     fromDate.Format("2006-01-02"),
-		"toDate":       today.Format("2006-01-02"),
-		"table":        table,
-		"description":  fmt.Sprintf("Fault history for %s from last %d month(s)", table, monthsBack),
+		"success":     true,
+		"data":        data,
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"totalPages":  (total + limit - 1) / limit,
+		"monthsBack":  monthsBack,
+		"fromDate":    fromDate.Format("2006-01-02"),
+		"toDate":      today.Format("2006-01-02"),
+		"table":       table,
+		"description": fmt.Sprintf("Fault history for %s from last %d month(s)", table, monthsBack),
 	})
 }
 
@@ -705,7 +703,7 @@ func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Detect timestamp column for this table
-	tsCol := getTimestampColumn(table)
+	tsCol := getTimestampColumn(r.Context(), table)
 	if tsCol == "" {
 		tsCol = "created_at" // Fallback
 	}
@@ -726,7 +724,25 @@ func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * limit
 
-	rows, err := database.SafeQuery(query,
+	// Get total count
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) as total FROM `+"`%s`"+` 
+		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
+		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
+		table, tsCol, tsCol)
+
+	var total int
+	err := database.SafeQueryRowContext(r.Context(), countQuery,
+		startOfDay.Format("2006-01-02 15:04:05"),
+		endOfDay.Format("2006-01-02 15:04:05"),
+	).Scan(&total)
+	if err != nil {
+		log.Printf("Error getting today's fault count: %v", err)
+		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := database.SafeQueryContext(r.Context(), query,
 		startOfDay.Format("2006-01-02 15:04:05"),
 		endOfDay.Format("2006-01-02 15:04:05"),
 		limit,
@@ -743,27 +759,6 @@ func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-
-	// Get total count
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) as total FROM `+"`%s`"+` 
-		WHERE `+"`%s`"+` >= ? AND `+"`%s`"+` <= ?
-		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
-		table, tsCol, tsCol)
-
-	countRows, err := database.SafeQuery(countQuery,
-		startOfDay.Format("2006-01-02 15:04:05"),
-		endOfDay.Format("2006-01-02 15:04:05"),
-	)
-	if err != nil {
-		log.Printf("Error getting count: %v", err)
-	}
-	defer countRows.Close()
-
-	var total int
-	if countRows.Next() {
-		countRows.Scan(&total)
-	}
 
 	// Parse results
 	data := scanFaultRecords(rows)
@@ -785,6 +780,9 @@ func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
 // GetFaultHistory is a helper to get fault records from a specific table for the past N months
 // Used when you need to query faults outside of the HTTP handler
 func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map[string]interface{}, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	if monthsBack < 1 {
 		monthsBack = 2
 	}
@@ -793,7 +791,7 @@ func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map
 	}
 
 	// Detect timestamp column
-	tsCol := getTimestampColumn(table)
+	tsCol := getTimestampColumn(ctx, table)
 	if tsCol == "" {
 		tsCol = "created_at"
 	}
@@ -809,18 +807,13 @@ func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map
 		AND FAULT_CODE IS NOT NULL AND FAULT_CODE != ''`,
 		table, tsCol, tsCol)
 
-	countRows, err := database.SafeQuery(countQuery,
+	var total int
+	err := database.SafeQueryRowContext(ctx, countQuery,
 		fromDate.Format("2006-01-02 15:04:05"),
 		today.Format("2006-01-02 23:59:59"),
-	)
+	).Scan(&total)
 	if err != nil {
 		return nil, 0, err
-	}
-	defer countRows.Close()
-
-	var total int
-	if countRows.Next() {
-		countRows.Scan(&total)
 	}
 
 	// Get paginated data
@@ -832,7 +825,7 @@ func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map
 		LIMIT ? OFFSET ?`,
 		table, tsCol, tsCol, tsCol)
 
-	rows, err := database.SafeQuery(query,
+	rows, err := database.SafeQueryContext(ctx, query,
 		fromDate.Format("2006-01-02 15:04:05"),
 		today.Format("2006-01-02 23:59:59"),
 		limit,

@@ -2,14 +2,94 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net"
 	"net/smtp"
 	"os"
 	"strings"
 	"time"
 )
+
+// emailSem bounds how many export emails may be sent concurrently. Exports are
+// fire-and-forget, so without a cap a burst of large exports would spawn
+// unbounded goroutines each holding a full file copy in memory.
+var emailSem = make(chan struct{}, 4)
+
+const emailSendTimeout = 30 * time.Second
+
+// dispatchEmail runs an email send on the bounded worker set with panic
+// recovery. If all slots are busy the send is dropped (and logged) rather than
+// leaking a goroutine — the export itself already succeeded for the client.
+func dispatchEmail(name string, fn func()) {
+	select {
+	case emailSem <- struct{}{}:
+	default:
+		log.Printf("Email queue full, dropping send: %s", name)
+		return
+	}
+	go func() {
+		defer func() {
+			<-emailSem
+			if rec := recover(); rec != nil {
+				log.Printf("PANIC in email send %s: %v", name, rec)
+			}
+		}()
+		fn()
+	}()
+}
+
+// sendMailWithTimeout is like smtp.SendMail but every network step has a
+// deadline. The stdlib smtp.SendMail can block forever on a stalled server,
+// which would leak the goroutine and its buffered attachment indefinitely.
+func sendMailWithTimeout(addr, host string, auth smtp.Auth, from string, to []string, msg []byte) error {
+	conn, err := net.DialTimeout("tcp", addr, emailSendTimeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(emailSendTimeout))
+
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return err
+		}
+	}
+	if auth != nil {
+		if ok, _ := c.Extension("AUTH"); ok {
+			if err := c.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	for _, rcpt := range to {
+		if err := c.Rcpt(rcpt); err != nil {
+			return err
+		}
+	}
+	wc, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := wc.Write(msg); err != nil {
+		return err
+	}
+	if err := wc.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
+}
 
 var emailReceivers = []string{
 	"yogendra.maurya@kabuprojects.com",
@@ -165,7 +245,7 @@ func sendExcelEmail(excelData []byte, filename string, tableName string, fromDat
 	auth := smtp.PlainAuth("", from, pass, smtpHost)
 	addr := smtpHost + ":" + smtpPort
 
-	err := smtp.SendMail(addr, auth, from, to, msg.Bytes())
+	err := sendMailWithTimeout(addr, smtpHost, auth, from, to, msg.Bytes())
 	if err != nil {
 		log.Printf("Failed to send export email: %v", err)
 	} else {
@@ -236,7 +316,7 @@ func sendCSVEmail(csvData []byte, filename string, tableName string) {
 	auth := smtp.PlainAuth("", from, pass, smtpHost)
 	addr := smtpHost + ":" + smtpPort
 
-	err := smtp.SendMail(addr, auth, from, to, msg.Bytes())
+	err := sendMailWithTimeout(addr, smtpHost, auth, from, to, msg.Bytes())
 	if err != nil {
 		log.Printf("Failed to send CSV export email: %v", err)
 	} else {

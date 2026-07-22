@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  grain-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grain-backend
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    networks:
+      - grain-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+networks:
+  grain-net:
+    driver: bridge

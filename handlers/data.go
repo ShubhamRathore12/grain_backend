@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -38,7 +40,7 @@ func HandleGetAllData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := "SELECT * FROM `" + table + "` ORDER BY id DESC LIMIT 1"
-	rows, err := database.SafeQuery(query)
+	rows, err := database.SafeQueryContext(r.Context(), query)
 	if err != nil {
 		log.Printf("Error fetching data: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -52,7 +54,11 @@ func HandleGetAllData(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	columns, _ := rows.Columns()
+	columns, err := rows.Columns()
+	if err != nil {
+		http.Error(w, `{"error": "Database result error"}`, http.StatusInternalServerError)
+		return
+	}
 	values := make([]interface{}, len(columns))
 	valuePtrs := make([]interface{}, len(columns))
 	for i := range values {
@@ -61,7 +67,10 @@ func HandleGetAllData(w http.ResponseWriter, r *http.Request) {
 
 	var result map[string]interface{}
 	if rows.Next() {
-		rows.Scan(valuePtrs...)
+		if err := rows.Scan(valuePtrs...); err != nil {
+			http.Error(w, `{"error": "Database result error"}`, http.StatusInternalServerError)
+			return
+		}
 		result = make(map[string]interface{})
 		for i, col := range columns {
 			val := values[i]
@@ -94,6 +103,9 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 	if limit < 1 {
 		limit = 10
 	}
+	if limit > 1000 {
+		limit = 1000
+	}
 
 	// Support both "from"/"to" and "fromDate"/"toDate" query params
 	fromDate := r.URL.Query().Get("from")
@@ -119,7 +131,7 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 	offset := (page - 1) * limit
 
 	// Detect timestamp column for this table
-	tsCol := getTimestampColumn(table)
+	tsCol := getTimestampColumn(r.Context(), table)
 
 	// Build WHERE clause. Skip date filter when no timestamp column exists
 	// to avoid "Unknown column" SQL errors on tables without one.
@@ -142,22 +154,16 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 
 	// Get total count
 	countQuery := "SELECT COUNT(*) as total FROM `" + table + "` " + whereClause
-	countRows, err := database.SafeQuery(countQuery, params...)
-	if err != nil {
+	var total int
+	if err := database.SafeQueryRowContext(r.Context(), countQuery, params...).Scan(&total); err != nil {
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
 		return
 	}
-	defer countRows.Close()
-
-	var total int
-	if countRows.Next() {
-		countRows.Scan(&total)
-	}
 
 	// Get paginated data
-	dataParams := append(params, limit, offset)
+	dataParams := append(append([]interface{}{}, params...), limit, offset)
 	dataQuery := "SELECT * FROM `" + table + "` " + whereClause + " ORDER BY id DESC LIMIT ? OFFSET ?"
-	rows, err := database.SafeQuery(dataQuery, dataParams...)
+	rows, err := database.SafeQueryContext(r.Context(), dataQuery, dataParams...)
 	if err != nil {
 		http.Error(w, `{"error": "Database error"}`, http.StatusInternalServerError)
 		return
@@ -177,48 +183,16 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper functions
+// getAllowedTables returns the whitelist of queryable tables. It derives from
+// machineStatusTables so the whitelist and the status dashboard can never drift.
+// Sorted for a deterministic response order.
 func getAllowedTables() []string {
-	return []string{
-		"GTPL_108_gT_40E_P_S7_200_Germany",
-		"GTPL_109_gT_40E_P_S7_200_Germany",
-		"GTPL_110_gT_40E_P_S7_200_Germany",
-		"GTPL_111_gT_80E_P_S7_200_Germany",
-		"GTPL_112_gT_80E_P_S7_200_Germany",
-		"GTPL_113_gT_80E_P_S7_200_Germany",
-		"kabomachinedatasmart200",
-		"GTPL_114_GT_140E_S7_1200",
-		"GTPL_115_GT_180E_S7_1200",
-		"GTPL_119_GT_180E_S7_1200",
-		"GTPL_120_GT_180E_S7_1200",
-		"GTPL_116_GT_240E_S7_1200",
-		"GTPL_117_GT_320E_S7_1200",
-		"GTPL_121_GT1000T",
-		"gtpl_122_s7_1200_01",
-		"GTPL_124_GT_450T_S7_1200",
-		"GTPL_081_GT_650T_S7_1200",
-		"GTPL_105_GT_650T_S7_1200",
-		"GTPL_133_GT_650T_S7_1200",
-		"GTPL_154_GT_650T_S7_1200",
-		"GTPL_155_GT_650T_S7_1200",
-		"GTPL_131_GT_650T_S7_1200",
-		"GTPL_132_GT300AP",
-		"GTPL_137_GT_450T_S7_1200",
-		"GTPL_138_GT_450T_S7_1200",
-		"GTPL_136_GT_450AP_S7_1200",
-		"GTPL_134_GT_450T_S7_1200",
-		"GTPL_135_GT_450T_S7_1200",
-		"GTPL_061_GT_450T_S7_1200",
-		"GTPL_139_GT300AP",
-		"GTPL_142_GT_450AP_S7_1200",
-		"GTPL_123_GT_450AP_S7_1200",
-		"GTPL_143_GT_450AP_S7_1200",
-		"GTPL_145_GT_450T_S7_1200",
-		"GTPL_148_GT_450T_S7_1200",
-		"GTPL_144_GT_300AP_S7_1200",
-		"GTPL_118_GT_60T_S7_1200",
-		"GTPL_104_GT_650T_S7_1200",
-		"GTPL_068_GT_650T_S7_1200",
+	tables := make([]string, 0, len(machineStatusTables))
+	for tableName := range machineStatusTables {
+		tables = append(tables, tableName)
 	}
+	sort.Strings(tables)
+	return tables
 }
 
 func contains(slice []string, item string) bool {
@@ -247,7 +221,7 @@ var tsColumnCache sync.Map
 // getTimestampColumn detects the timestamp column name for a given table.
 // Filters by current DATABASE() schema and orders results so preferred names win deterministically.
 // Result is cached per-table.
-func getTimestampColumn(table string) string {
+func getTimestampColumn(ctx context.Context, table string) string {
 	if cached, ok := tsColumnCache.Load(table); ok {
 		return cached.(string)
 	}
@@ -261,17 +235,12 @@ func getTimestampColumn(table string) string {
 		  AND COLUMN_NAME IN ('created_at','created_on','CreatedAt','CreatedOn','timestamp','Timestamp','DateTime','datetime','date_time','Date','date','time')
 		ORDER BY FIELD(COLUMN_NAME,'created_at','created_on','CreatedAt','CreatedOn','timestamp','Timestamp','DateTime','datetime','date_time','Date','date','time')
 		LIMIT 1`
-	rows, err := database.SafeQuery(query, table)
-	if err != nil {
+	col := ""
+	err := database.SafeQueryRowContext(ctx, query, table).Scan(&col)
+	if err != nil && err != sql.ErrNoRows {
 		log.Printf("getTimestampColumn error for %s: %v", table, err)
 		// Don't cache the default — let the next call retry detection.
 		return "created_at"
-	}
-	defer rows.Close()
-
-	col := ""
-	if rows.Next() {
-		rows.Scan(&col)
 	}
 	if col == "" {
 		// No matching timestamp column exists in this table. Caller must handle this.

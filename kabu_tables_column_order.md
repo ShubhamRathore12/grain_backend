@@ -46,8 +46,9 @@ created_at, id, T2_1_ambient_temp, T2_2_ambient_temp, T1_1_cold_air_temp, T1_2_c
 
 ## 16. GTPL_118_API_TEST_MOCK
 ## 17. GTPL_118_GT_60T_S7_1200
+## 18. GTPL_149_GT_60T_S7_1200
 
-*(Tables 16–17 identical schema — single sensor T2/T1/T0)*
+*(Tables 16–18 identical schema — single sensor T2/T1/T0)*
 
 created_at, id, T2_ambient_temp, T1_cold_air_temp, T0_air_outlet_temp, LP_value, HP_value, T2_temp_mean, T1_temp_mean, T0_temp_mean, Blower_speed, Condenser_fan_speed, Hot_valve_speed, AHT_vale_speed, T1_set_point, Delta_T_set_point, Compressor_timer, Aeration_duration_set, Running_time_hour, Running_time_minute, HP_set_point, LP_set_point, Blower_speed_set_in_manual, Condenser_speed_set_in_manual, Hot_gas_valve_set_in_manual, AHT_valve_set_in_manual, Running_hours, Running_hours_min, Auto_mode, Manual_mode, Aeration_mode, Auto_start, Auto_stop, Aeration_start, Aeration_stop, Continuous_mode, Compressor_circuit_breaker_I0_0, Compressor_motor_overheat_I0_1, Compressor_in_operation_I0_2, Blower_drive_fault_I0_3, Blower_drive_running_status_I0_4, Blower_circuit_breaker_I0_5, Condenser_fan_overheat_I0_6, Condenser_fan_circuit_breaker_I0_7, Low_pressure_fault_I1_0, High_pressure_fault_I1_1, Three_phase_monitoring_fault_I1_2, Condenser_fan_door_open, Compressor_on_Q0_0, Compressor_motor_reset_Q0_1, Solenoid_valve_on_Q0_2, Hot_gas_valve_on_Q0_3, After_heat_valve_on_Q0_4, Blower_drive_on_Q0_5, Collective_Trouble_Signal_Q0_6, Chiller_healthy_Q0_7, Condenser_fan_on_Q1_0, Chiller_Fault_Q1_1, FAULT_CODE, Compressor_circuit_breaker_fault, Blower_drive_fault, Blower_circuit_breaker_fault, Three_phase_monitor_fault, High_pressure_fault, Ambient_temp_lower_than_set_temp, Ambient_temp_over_45C, Compressor_motor_overheat, Low_pressure_1_fault, Compressor_running_status_fault, Low_pressure_2_fault, Ambient_temp_over_43C, Condenser_fan_circuit_breaker_fault, Condenser_fan_TOP_fault, Ambient_air_sensor_T2_open, Ambient_air_sensor_T2_short_circuit, Cold_air_sensor_T1_open, Cold_air_sensor_T1_short_circuit, Air_outlet_sensor_T0_open, Air_outlet_sensor_T0_short_circuit, Discharge_pressure_high_clean_filter
 

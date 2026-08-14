@@ -124,6 +124,7 @@ func isIndianMachine(table string) bool {
 		"GTPL_132": true, "GTPL_133": true, "GTPL_154": true, "GTPL_155": true,
 		"GTPL_134": true, "GTPL_135": true, "GTPL_139": true, "GTPL_142": true,
 		"GTPL_143": true, "GTPL_144": true, "GTPL_145": true, "GTPL_148": true,
+		"GTPL_149": true,
 		"kabo": true,
 	}
 	if indianMachines[prefix] {
@@ -153,7 +154,9 @@ func isTModel(table string) bool                                       { return 
 func isT650Model(table string) bool                                    { return false }
 func isGTPL124(table string) bool                                      { return false }
 func isThailandT(table string) bool                                    { return false }
-func isGTPL118(table string) bool                                      { return false }
+func isGTPL118(table string) bool {
+	return strings.Contains(table, "GTPL_118") || strings.Contains(table, "GTPL_149")
+}
 func isEModel(table string) bool                                       { return false }
 func isEPModel(table string) bool                                      { return false }
 func hasHeater(table string) bool                                      { return false }

@@ -77,6 +77,8 @@ var machineStatusTables = map[string]string{
 	"GTPL_144_GT_300AP_S7_1200":        "GTPL_144",
 	"GTPL_145_GT_450T_S7_1200":         "GTPL_145",
 	"GTPL_148_GT_450T_S7_1200":         "GTPL_148",
+	"GTPL_156_GT_450T_S7_1200":         "GTPL_156",
+	"GTPL_157_GT_450T_S7_1200":         "GTPL_157",
 	"GTPL_149_GT_60T_S7_1200":          "GTPL_149",
 	"GTPL_118_GT_60T_S7_1200":          "GTPL_118",
 }

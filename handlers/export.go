@@ -62,6 +62,10 @@ var machineTimezones = map[string]*time.Location{
 	// Indonesia (GMT+7)
 	"GTPL_124": mustLoadLocation("Asia/Jakarta"),
 
+	// Philippines (GMT+8)
+	"GTPL_156": mustLoadLocation("Asia/Manila"),
+	"GTPL_157": mustLoadLocation("Asia/Manila"),
+
 	// Thailand (GMT+7)
 	"GTPL_137": mustLoadLocation("Asia/Bangkok"),
 	"GTPL_138": mustLoadLocation("Asia/Bangkok"),
@@ -92,6 +96,8 @@ func mustLoadLocation(name string) *time.Location {
 			return time.FixedZone("WIB", 7*60*60)
 		case "Asia/Bangkok":
 			return time.FixedZone("ICT", 7*60*60)
+		case "Asia/Manila":
+			return time.FixedZone("PHT", 8*60*60)
 		default:
 			return time.UTC
 		}

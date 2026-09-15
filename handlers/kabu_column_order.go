@@ -93,13 +93,19 @@ func parseKabuMarkdown(content string) {
 }
 
 
-// parseColumnLine extracts column names from a comma-separated list
+// parseColumnLine extracts column names from a comma-separated list.
+// A few PLC tag names contain a literal comma (e.g.
+// "Discharge_pressure_high,_please_clean_the_air_filter"); those are written
+// in the markdown as "\," and unescaped back to a comma here so they survive
+// the split and keep their spec position instead of falling through to the
+// "unknown column" tail.
 func parseColumnLine(line string) []string {
-	parts := strings.Split(line, ",")
+	const escapedComma = "<<KABU_COMMA>>"
+	parts := strings.Split(strings.ReplaceAll(line, `\,`, escapedComma), ",")
 	result := make([]string, 0, len(parts))
 
 	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
+		trimmed := strings.TrimSpace(strings.ReplaceAll(p, escapedComma, ","))
 		if trimmed != "" && !strings.HasPrefix(trimmed, "*") {
 			result = append(result, trimmed)
 		}

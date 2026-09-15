@@ -156,6 +156,13 @@ func main() {
 		w.Write([]byte(`{"success": true, "message": "Diagnose endpoint working"}`))
 	}).Methods("GET", "OPTIONS")
 
+	// User management (protected; the handlers additionally restrict access to
+	// the usernames in defaultUserAdmins / USER_ADMIN_USERNAMES)
+	protected.HandleFunc("/users", handlers.HandleListUsers).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/users/", handlers.HandleListUsers).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/users/{id:[0-9]+}", handlers.HandleUpdateUser).Methods("PUT", "PATCH", "OPTIONS")
+	protected.HandleFunc("/users/{id:[0-9]+}", handlers.HandleDeleteUser).Methods("DELETE", "OPTIONS")
+
 	// WebSocket endpoint
 	r.HandleFunc("/ws", wsHub.HandleWebSocket)
 

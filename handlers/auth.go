@@ -25,6 +25,18 @@ const (
 	passwordChangeWindow     = 15 * time.Minute
 )
 
+// Accounts exempt from login rate limiting. These are shared operator logins
+// that sign in from many hosts at once, so the per-IP and per-username caps
+// lock them out during normal use. Keys must be lowercase.
+var loginRateLimitExempt = map[string]bool{
+	"yogendra":  true,
+	"narayan12": true,
+}
+
+func isLoginRateLimitExempt(username string) bool {
+	return loginRateLimitExempt[strings.ToLower(strings.TrimSpace(username))]
+}
+
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -58,15 +70,17 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clientIP := middleware.ClientIP(r)
-	if ok, retryAfter := middleware.AllowRequest("login-ip", clientIP, loginAttemptsPerIP, loginWindow); !ok {
-		log.Printf("auth: login rate limit hit for ip=%s", clientIP)
-		middleware.WriteRateLimited(w, retryAfter)
-		return
-	}
-	if ok, retryAfter := middleware.AllowRequest("login-user", strings.ToLower(username), loginAttemptsPerUsername, loginWindow); !ok {
-		log.Printf("auth: login rate limit hit for username=%s ip=%s", username, clientIP)
-		middleware.WriteRateLimited(w, retryAfter)
-		return
+	if !isLoginRateLimitExempt(username) {
+		if ok, retryAfter := middleware.AllowRequest("login-ip", clientIP, loginAttemptsPerIP, loginWindow); !ok {
+			log.Printf("auth: login rate limit hit for ip=%s", clientIP)
+			middleware.WriteRateLimited(w, retryAfter)
+			return
+		}
+		if ok, retryAfter := middleware.AllowRequest("login-user", strings.ToLower(username), loginAttemptsPerUsername, loginWindow); !ok {
+			log.Printf("auth: login rate limit hit for username=%s ip=%s", username, clientIP)
+			middleware.WriteRateLimited(w, retryAfter)
+			return
+		}
 	}
 
 	// Look the user up by username only. The old query matched username AND

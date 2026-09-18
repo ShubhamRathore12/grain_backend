@@ -518,11 +518,32 @@ func parseInt(s string) (int, error) {
 	return i, err
 }
 
+// sqlDateTimeLayout is the only layout that should reach MySQL DATETIME
+// comparisons.
+const sqlDateTimeLayout = "2006-01-02 15:04:05"
+
+// formatSQLTime renders a timestamp for use as a DATETIME bind parameter.
+func formatSQLTime(t time.Time) string {
+	return t.Format(sqlDateTimeLayout)
+}
+
+// endOfDayString returns 23:59:59 on the given calendar day.
+//
+// This replaces t.Format("2006-01-02 23:59:59"), which was not a Go layout
+// string: "2", "3" and "5" are reference-time tokens, so Go substituted the day,
+// hour and second into them. On 16 Sep 2026 it produced
+// "2026-09-16 168:239:239" — an invalid DATETIME that matched no rows, so the
+// alarm-history count and page came back empty while the table held records.
+// That is the zero-results-with-200-records contradiction in F-04.
+func endOfDayString(t time.Time) string {
+	return time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, t.Location()).Format(sqlDateTimeLayout)
+}
+
 // HandleGetFaultHistory retrieves fault history from a table for the past X months
 func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
-	table := r.URL.Query().Get("table")
-	if table == "" {
-		table = "kabomachinedatasmart200"
+	table, authorized := resolveTable(w, r)
+	if !authorized {
+		return
 	}
 
 	// Parse months back (default 2 months)
@@ -540,18 +561,6 @@ func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
-	}
-
-	// Validate table name
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid table name",
-		})
-		return
 	}
 
 	// Detect timestamp column for this table
@@ -584,8 +593,8 @@ func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
 
 	var total int
 	err := database.SafeQueryRowContext(r.Context(), countQuery,
-		fromDate.Format("2006-01-02 15:04:05"),
-		today.Format("2006-01-02 23:59:59"),
+		formatSQLTime(fromDate),
+		endOfDayString(today),
 	).Scan(&total)
 	if err != nil {
 		log.Printf("Error getting fault history count: %v", err)
@@ -594,18 +603,18 @@ func HandleGetFaultHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := database.SafeQueryContext(r.Context(), query,
-		fromDate.Format("2006-01-02 15:04:05"),
-		today.Format("2006-01-02 23:59:59"),
+		formatSQLTime(fromDate),
+		endOfDayString(today),
 		limit,
 		offset,
 	)
 	if err != nil {
+		log.Printf("Error fetching fault history for %s: %v", table, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"error":   "Failed to fetch fault history",
-			"message": err.Error(),
 		})
 		return
 	}
@@ -674,9 +683,9 @@ func scanFaultRecords(rows *sql.Rows) []map[string]interface{} {
 
 // HandleGetTodaysFaults retrieves fault records from TODAY only
 func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
-	table := r.URL.Query().Get("table")
-	if table == "" {
-		table = "kabomachinedatasmart200"
+	table, authorized := resolveTable(w, r)
+	if !authorized {
+		return
 	}
 
 	// Parse limit (default 100)
@@ -688,18 +697,6 @@ func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
-	}
-
-	// Validate table name
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   "Invalid table name",
-		})
-		return
 	}
 
 	// Detect timestamp column for this table
@@ -749,12 +746,14 @@ func HandleGetTodaysFaults(w http.ResponseWriter, r *http.Request) {
 		offset,
 	)
 	if err != nil {
+		// The driver message can name tables and columns, so it stays in the
+		// server log and the client gets a generic failure (S-07).
+		log.Printf("faults: today's-faults query failed for table %s: %v", table, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"error":   "Failed to fetch today's faults",
-			"message": err.Error(),
 		})
 		return
 	}
@@ -809,8 +808,8 @@ func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map
 
 	var total int
 	err := database.SafeQueryRowContext(ctx, countQuery,
-		fromDate.Format("2006-01-02 15:04:05"),
-		today.Format("2006-01-02 23:59:59"),
+		formatSQLTime(fromDate),
+		endOfDayString(today),
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, err
@@ -826,8 +825,8 @@ func GetFaultHistory(table string, monthsBack int, limit int, offset int) ([]map
 		table, tsCol, tsCol, tsCol)
 
 	rows, err := database.SafeQueryContext(ctx, query,
-		fromDate.Format("2006-01-02 15:04:05"),
-		today.Format("2006-01-02 23:59:59"),
+		formatSQLTime(fromDate),
+		endOfDayString(today),
 		limit,
 		offset,
 	)

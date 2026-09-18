@@ -60,118 +60,158 @@ func main() {
 	// Create router
 	r := mux.NewRouter()
 
-	// =============================================
-	// PUBLIC ROUTES (no auth required)
-	// =============================================
+	// =========================================================================
+	// PUBLIC ROUTES
+	//
+	// Deny by default: this list is the entire public surface of the API. Every
+	// other route lives on the authenticated subrouter below.
+	//
+	// Machine telemetry, reports, fault history, exports and the live socket used
+	// to be reachable with no credential at all, which is what made a direct URL
+	// or a hand-written /api/table request enough to read another customer's
+	// chiller (S-01, S-06). They are all authenticated now.
+	// =========================================================================
 
-	// Health check
+	// Liveness probe. Reports process/database health only, never machine data.
 	r.HandleFunc("/api/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
-
-	// Authentication
-	r.HandleFunc("/api/login", handlers.HandleLogin).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/register", handlers.HandleRegister).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/auth/login", handlers.HandleLogin).Methods("POST", "OPTIONS")
-	r.HandleFunc("/api/auth/register", handlers.HandleRegister).Methods("POST", "OPTIONS")
-
-	// Machine status (used by dashboard/expo without auth)
-	r.HandleFunc("/api/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/machine/status", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/machine/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
-
-	// Table data (used by dashboard/expo without auth)
-	r.HandleFunc("/api/table", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-
-	// Reports (used by dashboard/expo without auth)
-	r.HandleFunc("/api/reports", handlers.HandleReports).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/reports/health", handlers.HandleHealthCheck).Methods("GET", "OPTIONS")
 
-	// Excel XLSX export - register specific routes FIRST
-	r.HandleFunc("/api/export/excel", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/export/excel/", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
+	// Credential endpoints. Rate limited inside the handler.
+	r.HandleFunc("/api/login", handlers.HandleLogin).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/auth/login", handlers.HandleLogin).Methods("POST", "OPTIONS")
 
-	// CSV export (downloads last 3 days by default) - register generic routes AFTER
-	r.HandleFunc("/api/export", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/export/", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
+	// Logout is public so a request carrying an already-expired token still
+	// clears the cookie instead of returning 401. The handler revokes the session
+	// server-side when a valid token is present.
+	r.Handle("/api/logout", middleware.OptionalAuth(http.HandlerFunc(handlers.HandleLogout))).Methods("POST", "OPTIONS")
+	r.Handle("/api/auth/logout", middleware.OptionalAuth(http.HandlerFunc(handlers.HandleLogout))).Methods("POST", "OPTIONS")
 
-	// All data routes (used by dashboard without auth)
-	r.HandleFunc("/api/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/alldata/alldata/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	// Account creation is admin-only unless explicitly opened up. Registered
+	// here so the closed case can answer 404 rather than advertising the route.
+	if cfg.AllowPublicRegister {
+		r.HandleFunc("/api/register", handlers.HandleRegister).Methods("POST", "OPTIONS")
+		r.HandleFunc("/api/auth/register", handlers.HandleRegister).Methods("POST", "OPTIONS")
+	}
 
-	// Smart200/1200 data routes (used by dashboard without auth)
-	r.HandleFunc("/api/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
-
-	// Get all data smart200 route
-	r.HandleFunc("/api/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
-
-	// Fault logs/history (used by dashboard/expo without auth)
-	// Retrieves fault history from today back 2 months (default)
-	r.HandleFunc("/api/faultLogs", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/faultLogs/", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/fault/history", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/fault/history/", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
-
-	// Today's faults only (used by dashboard/expo without auth)
-	// Retrieves only faults from today
-	r.HandleFunc("/api/fault/today", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/fault/today/", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/todaysFaults", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/todaysFaults/", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
-
-	// Active fault (used by dashboard/expo without auth)
-	r.HandleFunc("/api/getActiveFault", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
-	}).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/getActiveFault/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
-	}).Methods("GET", "OPTIONS")
-
-	// =============================================
-	// PROTECTED ROUTES (require auth cookie/token)
-	// =============================================
+	// =========================================================================
+	// PROTECTED ROUTES (valid session required)
+	//
+	// AuthenticateToken answers 401 for a missing, expired or revoked token.
+	// Handlers that take a `table` parameter then run it through resolveTable,
+	// which confirms the caller's monitorAccess grant covers that machine and
+	// answers 403 for anything else — unknown and unauthorized look identical
+	// (S-02, S-07).
+	// =========================================================================
 	protected := r.PathPrefix("/api").Subrouter()
 	protected.Use(middleware.AuthenticateToken)
 
-	// Data routes (protected)
-	protected.HandleFunc("/data/update", func(w http.ResponseWriter, r *http.Request) {
+	// Session introspection and self-service credential management (S-03, S-04).
+	protected.HandleFunc("/auth/session", handlers.HandleSession).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/auth/me", handlers.HandleSession).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/auth/change-password", handlers.HandleChangePassword).Methods("POST", "PUT", "OPTIONS")
+	protected.HandleFunc("/profile/password", handlers.HandleChangePassword).Methods("POST", "PUT", "OPTIONS")
+
+	// Account creation for administrators. HandleRegister stores the issued
+	// credential as an INIT: hash, so the new owner must replace it.
+	if !cfg.AllowPublicRegister {
+		protected.HandleFunc("/register", handlers.RequireAdmin(handlers.HandleRegister)).Methods("POST", "OPTIONS")
+		protected.HandleFunc("/auth/register", handlers.RequireAdmin(handlers.HandleRegister)).Methods("POST", "OPTIONS")
+	}
+
+	// Machine status. The response is filtered to the caller's assigned machines,
+	// so the device list can no longer be used to enumerate the fleet (S-02).
+	// "status-public" keeps its path for client compatibility but is not public.
+	protected.HandleFunc("/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/status-public/", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/machine/status", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/machine/status-public", handlers.HandleMachineStatus).Methods("GET", "OPTIONS")
+
+	// Latest-row table data.
+	protected.HandleFunc("/table", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/table/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+
+	// Reports.
+	protected.HandleFunc("/reports", handlers.HandleReports).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/reports/", handlers.HandleReports).Methods("GET", "OPTIONS")
+
+	// Exports. Specific Excel paths must be registered before the generic ones.
+	protected.HandleFunc("/export/excel", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/export/excel/", handlers.HandleExportExcel).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/export", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/export/", handlers.HandleExportCSV).Methods("GET", "OPTIONS")
+
+	// Bulk/paginated data.
+	protected.HandleFunc("/alldata/alldata", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/alldata/alldata/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/getAllData", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/paginatedSmart200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/all700data/paginatedSmart1200", handlers.HandleGetPaginatedData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/getAllDataSmart200", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/getAllDataSmart200/", handlers.HandleGetAllData).Methods("GET", "OPTIONS")
+
+	// Fault history (today back 2 months by default).
+	protected.HandleFunc("/faultLogs", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/faultLogs/", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/fault/history", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/fault/history/", handlers.HandleGetFaultHistory).Methods("GET", "OPTIONS")
+
+	// Today's faults only.
+	protected.HandleFunc("/fault/today", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/fault/today/", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/todaysFaults", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/todaysFaults/", handlers.HandleGetTodaysFaults).Methods("GET", "OPTIONS")
+
+	// Active fault placeholder. Still authorization-checked so it cannot become a
+	// probe for which machine identifiers are valid once it returns real data.
+	activeFault := func(w http.ResponseWriter, req *http.Request) {
+		if _, ok := handlers.AuthorizeTableRequest(w, req); !ok {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success": true, "data": [], "message": "Active fault endpoint"}`))
+	}
+	protected.HandleFunc("/getActiveFault", activeFault).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/getActiveFault/", activeFault).Methods("GET", "OPTIONS")
+
+	// Data write.
+	protected.HandleFunc("/data/update", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"message": "Data updated successfully"}`))
 	}).Methods("POST", "OPTIONS")
 
-	// Machine test/diagnose (admin only)
-	protected.HandleFunc("/machine/test", func(w http.ResponseWriter, r *http.Request) {
+	// Machine test/diagnose. Admin-gated: these are diagnostic surfaces, not
+	// operator features.
+	protected.HandleFunc("/machine/test", handlers.RequireAdmin(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success": true, "message": "Test endpoint working"}`))
-	}).Methods("GET", "OPTIONS")
-	protected.HandleFunc("/machine/diagnose", func(w http.ResponseWriter, r *http.Request) {
+	})).Methods("GET", "OPTIONS")
+	protected.HandleFunc("/machine/diagnose", handlers.RequireAdmin(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"success": true, "message": "Diagnose endpoint working"}`))
-	}).Methods("GET", "OPTIONS")
+	})).Methods("GET", "OPTIONS")
 
-	// User management (protected; the handlers additionally restrict access to
-	// the usernames in defaultUserAdmins / USER_ADMIN_USERNAMES)
+	// User management. Handlers additionally restrict access to the usernames in
+	// defaultUserAdmins / USER_ADMIN_USERNAMES.
 	protected.HandleFunc("/users", handlers.HandleListUsers).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/users/", handlers.HandleListUsers).Methods("GET", "OPTIONS")
 	protected.HandleFunc("/users/{id:[0-9]+}", handlers.HandleUpdateUser).Methods("PUT", "PATCH", "OPTIONS")
 	protected.HandleFunc("/users/{id:[0-9]+}", handlers.HandleDeleteUser).Methods("DELETE", "OPTIONS")
 
-	// WebSocket endpoint
-	r.HandleFunc("/ws", wsHub.HandleWebSocket)
+	// Live telemetry socket. Authenticated like every other route: the upgrade
+	// itself is refused without a session, and the origin is checked against the
+	// CORS allowlist inside the hub.
+	r.Handle("/ws", middleware.AuthenticateToken(http.HandlerFunc(wsHub.HandleWebSocket)))
 
-	// Wrap the entire router with CORS so headers are set on EVERY response,
-	// including 404/405 and preflight OPTIONS that never match a route.
-	// (gorilla/mux's r.Use() middleware does NOT run on unmatched routes.)
-	// Recover is outermost so a panic in ANY handler (or in CORS/deadline
-	// middleware) is caught and logged instead of crashing the process.
-	handler := middleware.Recover(requestDeadlineMiddleware(middleware.EnableCORS(r)))
+	// Wrap the entire router so headers are set on EVERY response, including
+	// 404/405 and preflight OPTIONS that never match a route (gorilla/mux's
+	// r.Use() middleware does NOT run on unmatched routes).
+	// Recover is outermost so a panic in ANY handler or middleware is caught and
+	// logged instead of crashing the process.
+	handler := middleware.Recover(
+		middleware.SecurityHeaders(
+			requestDeadlineMiddleware(
+				middleware.EnableCORS(r))))
 
 	// Create HTTP server
 	server := &http.Server{

@@ -247,12 +247,13 @@ func normalizeMonitorAccess(raw json.RawMessage) (string, error) {
 // HandleUpdateUser edits one user. Restricted to the allowlisted accounts.
 // PUT|PATCH /api/users/{id}
 func HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUserAdmin(w, r); !ok {
+	claims, ok := requireUserAdmin(w, r)
+	if !ok {
 		return
 	}
 
-	id, ok := userIDFromPath(w, r)
-	if !ok {
+	id, validID := userIDFromPath(w, r)
+	if !validID {
 		return
 	}
 
@@ -297,7 +298,20 @@ func HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeUserError(w, http.StatusBadRequest, "Password cannot be empty")
 			return
 		}
-		values["password"] = *req.Password
+		if err := ValidatePasswordPolicy(*req.Password, ""); err != nil {
+			writeUserError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// An admin reset is stored hashed and marked as admin-issued, so the
+		// account owner has to replace it at next sign-in and the reset value
+		// never sits in the database as cleartext (S-03, S-04).
+		hashed, err := HashInitialPassword(*req.Password)
+		if err != nil {
+			log.Printf("Password hashing error for user %d: %v", id, err)
+			writeUserError(w, http.StatusInternalServerError, "Server error while updating user")
+			return
+		}
+		values["password"] = hashed
 	}
 	if req.Username != nil {
 		username := strings.TrimSpace(*req.Username)
@@ -346,6 +360,17 @@ func HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Update user %d error: %v", id, err)
 		writeUserError(w, http.StatusInternalServerError, "Server error while updating user")
 		return
+	}
+
+	// An access change must take effect now, not after the grant cache expires.
+	if _, changed := values["monitorAccess"]; changed {
+		InvalidateMachineGrant(id)
+		log.Printf("authz: machine grants changed for user %d by %s", id, claims.Username)
+	}
+	// A reset password must not leave the old sessions usable.
+	if _, changed := values["password"]; changed {
+		middleware.RevokeAllSessionsForUser(id)
+		log.Printf("auth: password reset for user %d by %s; all sessions revoked", id, claims.Username)
 	}
 
 	// RowsAffected is 0 both for "no such user" and for "values were already

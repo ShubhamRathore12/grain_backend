@@ -182,17 +182,11 @@ func HandleExportExcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	table := r.URL.Query().Get("table")
-	log.Printf("[HandleExportExcel] table param: %s", table)
-	if table == "" {
-		table = "kabomachinedatasmart200"
-	}
-
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		http.Error(w, `{"error": "Invalid table name"}`, http.StatusBadRequest)
+	table, authorized := resolveTable(w, r)
+	if !authorized {
 		return
 	}
+	log.Printf("[HandleExportExcel] resolved table: %s", table)
 
 	release, ok := acquireExportSlot(w)
 	if !ok {

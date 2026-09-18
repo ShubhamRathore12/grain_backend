@@ -24,8 +24,20 @@ vendor/
 *~
 
 # Environment
+# .env holds the JWT signing secret, the database password and SMTP credentials.
+# It must never be committed. NOTE: .env is currently still TRACKED in this repo
+# from earlier commits, so adding it here does not untrack it — see
+# SECURITY_REMEDIATION_BACKEND.md for the removal + rotation steps.
+.env
 .env.local
 .env.*.local
+.env.*-bak
+*.env.bak
+
+# Committed secret material of any kind
+*.pem
+*.key
+secrets/
 
 # OS
 .DS_Store

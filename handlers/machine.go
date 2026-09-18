@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"grain_backend/database"
+	"grain_backend/middleware"
 )
 
 // machineLastState holds the last observed row identity for a machine table so
@@ -108,8 +109,16 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The list itself is scoped before it leaves the server. Returning every
+	// machine and letting the client hide the rest is what made identifiers for
+	// other customers' chillers copyable in the first place (S-02).
+	visible, ok := visibleTablesForRequest(w, r)
+	if !ok {
+		return
+	}
+
 	if machines, ok := loadMachineStatusCache(); ok {
-		writeMachineStatusResponse(w, machines)
+		writeMachineStatusResponse(w, filterMachineStatuses(machines, visible))
 		return
 	}
 
@@ -118,7 +127,7 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 	machineStatusRefreshMu.Lock()
 	defer machineStatusRefreshMu.Unlock()
 	if machines, ok := loadMachineStatusCache(); ok {
-		writeMachineStatusResponse(w, machines)
+		writeMachineStatusResponse(w, filterMachineStatuses(machines, visible))
 		return
 	}
 
@@ -161,7 +170,42 @@ func HandleMachineStatus(w http.ResponseWriter, r *http.Request) {
 	machineStatusExpiry = time.Now().Add(machineStatusCacheTTL)
 	machineStatusCacheMu.Unlock()
 
-	writeMachineStatusResponse(w, machines)
+	// The cache stays global (one refresh serves everyone); the per-caller filter
+	// is applied on the way out.
+	writeMachineStatusResponse(w, filterMachineStatuses(machines, visible))
+}
+
+// visibleTablesForRequest returns the set of machine tables the caller may see,
+// or writes the error response and reports false.
+func visibleTablesForRequest(w http.ResponseWriter, r *http.Request) (map[string]bool, bool) {
+	claims, ok := middleware.GetUserFromContext(r)
+	if !ok {
+		writeAuthzError(w, http.StatusUnauthorized, "Authentication required")
+		return nil, false
+	}
+
+	tables, err := authorizedTables(r.Context(), claims)
+	if err != nil {
+		log.Printf("authz: could not load grants for user %d: %v", claims.UserID, err)
+		writeAuthzError(w, http.StatusServiceUnavailable, "Authorization data is temporarily unavailable. Please try again.")
+		return nil, false
+	}
+
+	visible := make(map[string]bool, len(tables))
+	for _, table := range tables {
+		visible[table] = true
+	}
+	return visible, true
+}
+
+func filterMachineStatuses(machines []MachineStatus, visible map[string]bool) []MachineStatus {
+	filtered := make([]MachineStatus, 0, len(visible))
+	for _, machine := range machines {
+		if visible[machine.TableName] {
+			filtered = append(filtered, machine)
+		}
+	}
+	return filtered
 }
 
 func loadMachineStatusCache() ([]MachineStatus, bool) {
@@ -419,9 +463,9 @@ func HandleReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	table := r.URL.Query().Get("table")
-	if table == "" {
-		table = "kabomachinedatasmart200"
+	table, authorized := resolveTable(w, r)
+	if !authorized {
+		return
 	}
 
 	fromDate := r.URL.Query().Get("fromDate")
@@ -438,12 +482,6 @@ func HandleReports(w http.ResponseWriter, r *http.Request) {
 
 	limit := 10
 	hasDateFilter := fromDate != "" || toDate != ""
-
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		http.Error(w, `{"error": "Invalid table name"}`, http.StatusBadRequest)
-		return
-	}
 
 	// Detect timestamp column for this table
 	tsCol := getTimestampColumn(r.Context(), table)

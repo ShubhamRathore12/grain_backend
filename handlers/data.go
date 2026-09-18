@@ -21,21 +21,12 @@ func HandleGetAllData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	table := r.URL.Query().Get("table")
-	if table == "" {
-		table = "kabomachinedatasmart200"
-	}
-
-	// Validate table name (whitelist approach)
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":       false,
-			"error":         "Invalid table name",
-			"allowedTables": allowedTables,
-		})
+	// Resolves the caller's `table` parameter against the server-side allowlist
+	// AND their own machine grants. Replaces the previous check, which validated
+	// the name but not the caller's right to it, and echoed the full allowedTables
+	// inventory back on a miss.
+	table, ok := resolveTable(w, r)
+	if !ok {
 		return
 	}
 
@@ -45,10 +36,10 @@ func HandleGetAllData(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error fetching data: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+		// Driver text stays in the log: it names tables and columns (S-07).
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"error":   "Failed to fetch data",
-			"message": err.Error(),
 		})
 		return
 	}
@@ -117,14 +108,9 @@ func HandleGetPaginatedData(w http.ResponseWriter, r *http.Request) {
 		toDate = r.URL.Query().Get("toDate")
 	}
 	fromDate, toDate = normalizeDateRange(fromDate, toDate)
-	table := r.URL.Query().Get("table")
-	if table == "" {
-		table = "kabomachinedatasmart200"
-	}
 
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		http.Error(w, `{"error": "Invalid table name"}`, http.StatusBadRequest)
+	table, ok := resolveTable(w, r)
+	if !ok {
 		return
 	}
 

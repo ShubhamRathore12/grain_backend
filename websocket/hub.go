@@ -7,22 +7,40 @@ import (
 	"sync"
 	"time"
 
+	"grain_backend/middleware"
+
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	// A WebSocket upgrade is not subject to CORS, so without this check any
+	// website could open a live telemetry stream using a logged-in operator's
+	// cookie. Same allowlist as the HTTP layer. A missing Origin header (native
+	// or server-side client) is allowed through; those callers still need a
+	// valid session token.
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for WebSocket connections
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		if middleware.IsOriginAllowed(origin) {
+			return true
+		}
+		log.Printf("ws: rejected upgrade from disallowed origin %q", origin)
+		return false
 	},
 }
 
-// Client represents a connected WebSocket client
+// Client represents a connected WebSocket client. UserID records which
+// authenticated account owns the socket so streams can be attributed and, when
+// per-machine stream scoping lands, filtered.
 type Client struct {
-	ID   string
-	Conn *websocket.Conn
-	Send chan []byte
+	ID     string
+	UserID int
+	Conn   *websocket.Conn
+	Send   chan []byte
 }
 
 // WebSocketHub manages all WebSocket connections
@@ -105,8 +123,22 @@ func (h *WebSocketHub) BroadcastToAll(data interface{}) {
 	}
 }
 
-// HandleWebSocket handles WebSocket upgrade and connection management
+// HandleWebSocket authenticates the caller, then upgrades the connection.
+//
+// The live-data socket used to accept anyone. It is mounted behind
+// middleware.AuthenticateToken now, and the claims are read here so a
+// disconnected session cannot linger on an open stream (S-01, S-05).
 func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetUserFromContext(r)
+	if !ok {
+		// Reject before the upgrade so the client sees a normal 401 rather than a
+		// socket that opens and immediately closes.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"success":false,"message":"Authentication required"}`))
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -114,10 +146,12 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		ID:   time.Now().Format("2006-01-02-15-04-05"),
-		Conn: conn,
-		Send: make(chan []byte, 256),
+		ID:     time.Now().UTC().Format("20060102150405.000000") + "-" + claims.Username,
+		UserID: claims.UserID,
+		Conn:   conn,
+		Send:   make(chan []byte, 256),
 	}
+	log.Printf("ws: client connected user=%d (%s)", claims.UserID, claims.Username)
 
 	// Queue the initial message into the buffered channel BEFORE registering the
 	// client with the hub. Once registered, a concurrent broadcast could close

@@ -145,14 +145,10 @@ func HandleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	table := r.URL.Query().Get("table")
-	if table == "" {
-		table = "kabomachinedatasmart200"
-	}
-
-	allowedTables := getAllowedTables()
-	if !contains(allowedTables, table) {
-		http.Error(w, `{"error": "Invalid table name"}`, http.StatusBadRequest)
+	// Downloads are an export path for machine data, so they carry the same
+	// authorization requirement as the read APIs (S-02).
+	table, authorized := resolveTable(w, r)
+	if !authorized {
 		return
 	}
 

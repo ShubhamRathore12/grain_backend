@@ -305,7 +305,18 @@ func HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		// An admin reset is stored hashed and marked as admin-issued, so the
 		// account owner has to replace it at next sign-in and the reset value
 		// never sits in the database as cleartext (S-03, S-04).
-		hashed, err := HashInitialPassword(*req.Password)
+		//
+		// An admin editing their OWN account is not a reset: the owner picked
+		// this password, so it must not carry the INIT: marker. Without this
+		// branch the forced change-password screen reappears on every login
+		// after the user changed their password through this endpoint.
+		var hashed string
+		var err error
+		if id == claims.UserID {
+			hashed, err = HashPassword(*req.Password)
+		} else {
+			hashed, err = HashInitialPassword(*req.Password)
+		}
 		if err != nil {
 			log.Printf("Password hashing error for user %d: %v", id, err)
 			writeUserError(w, http.StatusInternalServerError, "Server error while updating user")

@@ -40,6 +40,7 @@ var machineTimezones = map[string]*time.Location{
 	"GTPL_105": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_118": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_149": mustLoadLocation("Asia/Kolkata"),
+	"GTPL_141": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_121": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_122": mustLoadLocation("Asia/Kolkata"),
 	"GTPL_123": mustLoadLocation("Asia/Kolkata"),
@@ -89,9 +90,11 @@ var machineTimezones = map[string]*time.Location{
 }
 
 // sourceTZ is the timezone the database physically stores timestamps in.
-// The data-collection server sits in India, so raw DB datetimes are IST.
-// Exports parse in this zone, then convert to each machine's local timezone.
-var sourceTZ = mustLoadLocation("Asia/Kolkata")
+// Rows are written with CURRENT_TIMESTAMP and the MySQL server generates these
+// in UTC, so raw DB datetimes are UTC. Exports parse in this zone, then convert
+// to each machine's local timezone. (The driver DSN also uses loc=UTC so
+// time.Time values from the driver carry the same, correct instant.)
+var sourceTZ = mustLoadLocation("UTC")
 
 func mustLoadLocation(name string) *time.Location {
 	loc, err := time.LoadLocation(name)

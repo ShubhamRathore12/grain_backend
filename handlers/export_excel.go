@@ -128,7 +128,7 @@ func isIndianMachine(table string) bool {
 		"GTPL_171": true, "GTPL_172": true,
 		"GTPL_134": true, "GTPL_135": true, "GTPL_139": true, "GTPL_142": true,
 		"GTPL_143": true, "GTPL_144": true, "GTPL_145": true, "GTPL_148": true,
-		"GTPL_149": true,
+		"GTPL_149": true, "GTPL_141": true,
 		"kabo": true,
 	}
 	if indianMachines[prefix] {

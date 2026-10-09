@@ -25,7 +25,7 @@ func InitDatabase() error {
 	once.Do(func() {
 		cfg := config.GetConfig()
 
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=5s&readTimeout=15s&writeTimeout=15s",
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC&timeout=5s&readTimeout=15s&writeTimeout=15s",
 			cfg.DBUser,
 			cfg.DBPassword,
 			cfg.DBHost,

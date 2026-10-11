@@ -198,6 +198,9 @@ func main() {
 	protected.HandleFunc("/users/{id:[0-9]+}", handlers.HandleUpdateUser).Methods("PUT", "PATCH", "OPTIONS")
 	protected.HandleFunc("/users/{id:[0-9]+}", handlers.HandleDeleteUser).Methods("DELETE", "OPTIONS")
 
+	// GTPL-141 remote controls (server-held HVAC integration token).
+	handlers.RegisterGTPL141Routes(protected)
+
 	// Live telemetry socket. Authenticated like every other route: the upgrade
 	// itself is refused without a session, and the origin is checked against the
 	// CORS allowlist inside the hub.

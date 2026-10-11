@@ -1,0 +1,55 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "location": "design.md §C.4, §C.10",
+      "problem": "The frontend api() client returns a raw Response and only throws typed errors for 401/403/429; it does not parse JSON and does not throw ApiError for 409/422/502/503/504. The §C.4 wrappers describe api() as returning parsed JSON, and §C.10 maps 409/422 as ApiError with .status, which only holds via apiJson(). As written the read wrappers return unparsed Responses and the HMI-conflict / validation / service-unavailable handling never fires.",
+      "fix": "Build the typed wrappers on apiJson<T>() (which parses and throws ApiError for non-2xx) rather than api(); key §C.10 status handling off `err instanceof ApiError && err.status` for 409/422/503/502/504 plus SessionExpiredError/ForbiddenError/RateLimitedError for 401/403/429. State this explicitly so api() is not wired directly."
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "location": "design.md §B.3 vs §A.4 criterion 12 and §A.3 NFR-2",
+      "problem": "The §B.3 .env.example snippet commits a non-blank GTPL141_HVAC_BASE_URL (production host), contradicting the design's own acceptance criterion 12 ('blank entries') and NFR-2 ('only blank/example entries committed'). The token entry is correctly blank, so this is not a secret leak, but it is an internal contradiction and pins a prod endpoint into the template.",
+      "fix": "Make the committed GTPL141_HVAC_BASE_URL entry blank and rely on the getEnv default in GetConfig(), consistent with criterion 12; or amend criterion 12 to permit an example base URL. Pick one so the sections agree."
+    },
+    {
+      "id": 3,
+      "severity": "MEDIUM",
+      "location": "design.md §C.11 (pulse-groups note)",
+      "problem": "The design asserts the i18n key \"Auto\" already exists / is in SAME_IN_EVERY_LOCALE. Verified against check-translations.mjs and the en/de/th catalogues: \"Auto\" is in neither. Since the missing-key check applies to all locales (including en), taking this at face value breaks `npm run build` (check-translations fails).",
+      "fix": "Treat \"Auto\" as a new key: add it to all three catalogues with genuine values and, if the de value legitimately equals the key, add \"Auto\" to SAME_IN_EVERY_LOCALE. Correct the §C.11 note to list only Start/Stop as pre-existing."
+    },
+    {
+      "id": 4,
+      "severity": "MEDIUM",
+      "location": "design.md §C.6 vs Assumptions A-2/A-5",
+      "problem": "§C.6 states exact gating field names (latest.status/sample_ts/received_ts/online, capabilities.mode, gateway.ready/heartbeat_age/tags/pulse_values, live_tags, pulse_enabled, pulse_ms) as hard rules, while A-2/A-5 admit they are unverified guesses from the task text. The frontend's entire enable/disable behavior (FR-F3/F4, criteria 15/16) depends on them; a wrong name silently fails closed (every control disabled), looking like a broken panel. Not verifiable from the repos (upstream is external).",
+      "fix": "Pin the field names before implementation: add one captured/example upstream response for /machines/unit-141/latest and /controls/unit-141/capabilities, keep the single field map in src/lib/gtpl141.ts, and if no sample is obtainable, make the fail-closed behavior explicit with a visible 'gating fields unavailable' diagnostic distinct from stale/offline."
+    },
+    {
+      "id": 5,
+      "severity": "NIT",
+      "location": "design.md §C.13 (test vectors)",
+      "problem": "The negative test key 'GTPL-114-GT-140E-S7-1200' is not a MACHINE_CONFIG entry (the GTPL_114 table is reached via the 'GTPL-030-gT-180E-S7-1200' key). The exact-match test is sound; only the example key is non-existent.",
+      "fix": "Use real negative keys that exist in MACHINE_CONFIG, e.g. 'GTPL-030-gT-180E-S7-1200' and 'GTPL-044-GT-140E-S7-1200', plus a bare '141' string."
+    },
+    {
+      "id": 6,
+      "severity": "NIT",
+      "location": "design.md §C.11 (command statuses / review flow)",
+      "problem": "\"Needs review\" is listed twice; it is fine as one shared key but the design does not say so, risking two divergent keys.",
+      "fix": "Add a one-line note that \"Needs review\" is a single shared translation key."
+    },
+    {
+      "id": 7,
+      "severity": "NIT",
+      "location": "design.md §B.7 (timeout status mapping)",
+      "problem": "The 15s client timeout sits inside the 30s request deadline, so a slow upstream surfaces as a client timeout, not a context deadline. §B.7's '502 transport / 504 deadline' split leaves the 15s-client-timeout case ambiguous.",
+      "fix": "Map any timeout (client 15s timeout OR context.DeadlineExceeded) to 504 and transport/connection errors to 502; detect via errors.Is(err, context.DeadlineExceeded) and the http.Client timeout (net.Error.Timeout())."
+    }
+  ],
+  "reviewDoc": "/Users/shubham/Desktop/project/grain_backend/.agents/tasks/gtpl141-remote-control/design-review.md"
+}

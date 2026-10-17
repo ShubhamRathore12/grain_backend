@@ -9,32 +9,29 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	_ "time/tzdata" // embed tz database so Europe/Berlin always resolves with DST
 
 	"grain_backend/database"
 )
 
 const exportBatchSize = 5000
 
-// germanyTZ is used for German machines in CSV/Excel reports: timestamps are
-// shown as Indian time (UTC+5:30) plus 2 hours, i.e. a fixed UTC+7:30.
-var germanyTZ = time.FixedZone("IST+2", 7*60*60+30*60)
-
 // machineTimezones maps table name prefixes to their timezone locations
 // Based on machine installation locations
 var machineTimezones = map[string]*time.Location{
-	// Germany: reports show Indian time + 2h (see germanyTZ)
-	"GTPL_108": germanyTZ,
-	"GTPL_109": germanyTZ,
-	"GTPL_110": germanyTZ,
-	"GTPL_111": germanyTZ,
-	"GTPL_112": germanyTZ,
-	"GTPL_113": germanyTZ,
-	"GTPL_115": germanyTZ,
-	"GTPL_116": germanyTZ,
-	"GTPL_117": germanyTZ,
-	"GTPL_119": germanyTZ,
-	"GTPL_120": germanyTZ,
-	"GTPL_030": germanyTZ,
+	// Germany: real local time from the IANA tz database (CET/CEST, DST-aware)
+	"GTPL_108": mustLoadLocation("Europe/Berlin"),
+	"GTPL_109": mustLoadLocation("Europe/Berlin"),
+	"GTPL_110": mustLoadLocation("Europe/Berlin"),
+	"GTPL_111": mustLoadLocation("Europe/Berlin"),
+	"GTPL_112": mustLoadLocation("Europe/Berlin"),
+	"GTPL_113": mustLoadLocation("Europe/Berlin"),
+	"GTPL_115": mustLoadLocation("Europe/Berlin"),
+	"GTPL_116": mustLoadLocation("Europe/Berlin"),
+	"GTPL_117": mustLoadLocation("Europe/Berlin"),
+	"GTPL_119": mustLoadLocation("Europe/Berlin"),
+	"GTPL_120": mustLoadLocation("Europe/Berlin"),
+	"GTPL_030": mustLoadLocation("Europe/Berlin"),
 
 	// Türkiye (GMT+3)
 	"GTPL_061": mustLoadLocation("Europe/Istanbul"),
